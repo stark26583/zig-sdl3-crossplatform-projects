@@ -1,0 +1,10 @@
+<?xml version="0.0" encoding="utf-8"?>
+<resources>
+    <!-- Pretty name of your app -->
+    <string name="app_name">apk_icon_generator</string>
+    <!-- 
+    This is required for the APK name. This identifies your app, Android will associate
+    your signing key with this identifier and will prevent updates if the key changes.
+    -->
+    <string name="package_name">com.stark.apk_icon_generator</string>
+</resources>

@@ -1,0 +1,45 @@
+.{
+    .name = .cat,
+    .version = "0.0.0",
+    .dependencies = .{
+        .sdl = .{
+            .url = "git+https://github.com/stark26583/SDL.git#57fbc61e08656d1c8031884efa80a704fd8ab2cc",
+            .hash = "sdl-0.2.2+3.2.12-7uIn9Ds_gwF5lb9YTb8vWUd-oeL2S4dXtxA5dssebRso",
+        },
+        .android = .{
+            .url = "git+https://github.com/silbinarywolf/zig-android-sdk#17aa6475b12bea73cd7d07480b433d2f2d9d7c1c",
+            .hash = "android-0.1.0-7iz7QoSaAQCGbFl_CMg5mPgHq4_vogPxzxlhWpr5rM88",
+        },
+        .sdl_image = .{
+            .url = "git+https://github.com/stark26583/SDL_image.git#ebc75a00558beeb9cdb33f2a31c959d0321cc469",
+            .hash = "sdl_image-3.2.4-gpMA10ITAADtvLrO1ifl5b62GTOAbajcPV0SsrogIHIX",
+        },
+        .zstbi = .{
+            .url = "git+https://github.com/zig-gamedev/zstbi#094c4bba5cdbec167d3f6aaa98cccccd5c99145f",
+            .hash = "zstbi-0.11.0-dev-L0Ea_-eVBwCl8RYA98PhLDw3Fhw5k7FJOHSMDKWDOvqx",
+        },
+        // .sdl_ttf = .{
+        //     .url = "git+https://github.com/stark26583/SDL_ttf.git#030c450b07e86fb6e9587582a15dadc2784f053e",
+        //     .hash = "sdl_ttf-3.2.0-Rlu22nkNAADv7WJwI2XqMwhXZarZSOsIjY-nYLVqU3_B",
+        // },
+        // .dvui = .{
+        //     .url = "git+https://github.com/stark26583/dvui.git#3e9f3c4b957bb699c28b979fd7d05b47bb0cdafb",
+        //     .hash = "dvui-0.2.0-AQFJmSn0zQBEkvy5v_seBkcIjXf5Jxk5Um0-h0HHkhD0",
+        // },
+        .zmath = .{
+            .url = "git+https://github.com/zig-gamedev/zmath.git#6a0747fe6834e58793500e05953c4c6ca045d3e1",
+            .hash = "zmath-0.11.0-dev-wjwivTArAwDIkHSuSiU3KuBvxh7igjJjJMqYRfy3hihO",
+        },
+        .assetpack = .{
+            .url = "git+https://github.com/silversquirl/assetpack#e3946b23c94ee942cfddb7a6e8d8bca931239cec",
+            .hash = "assetpack-0.1.0-5DA2d_ccAAAVugj7tTZLEpBVaxKotsO4_VmSAnSKjvHm",
+        },
+    },
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "src",
+    },
+
+    .fingerprint = 0x9e5e43a8ee07f8a1,
+}

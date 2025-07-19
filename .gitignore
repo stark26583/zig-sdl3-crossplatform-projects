@@ -1,0 +1,17 @@
+zig-out/
+*.apk
+*.wasm
+*.html
+
+.zig-cache/
+
+gpu_projects/model_loading/
+gpu_projects/valdation_layers/
+
+projects/stiple/
+projects/Strawkhold/
+projects/image_test/
+projects/callback_test/
+projects/cross_platform_test/
+projects/android_template/
+
