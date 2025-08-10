@@ -4,7 +4,7 @@ This is a cross-platform Zig build setup for SDL3 projects targeting **Desktop**
 
 ⚠️ **Note:** This build system is **in development**, **not yet stable**, and relies on [Gota7's zig-sdl3](https://github.com/Gota7/zig-sdl3) for wrapper. It also uses a custom fork of [Castholm's SDL](https://github.com/castholm/SDL.git): [stark26583/SDL](https://github.com/stark26583/SDL.git) for build script. I am a beginner and don't know how to efficiently do them without having these many moving parts, please go through this repo and give feedback.
 
-👉 Suggestions, pull requests for new platforms, and support for more SDL extensions are welcome! Please encourage Gota7 to update `zig-sdl3` to include proper Web and Mobile support to avoid relying on custom forks.
+👉 Suggestions, pull requests for new platforms, and support for more SDL extensions are welcome!
 
 ---
 
