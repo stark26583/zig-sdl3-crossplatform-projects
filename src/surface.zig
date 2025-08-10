@@ -79,7 +79,7 @@ pub const FlipMode = struct {
 ///
 /// ## Version
 /// This enum is available since SDL 3.2.0.
-pub const ScaleMode = enum(c_uint) {
+pub const ScaleMode = enum(c.SDL_ScaleMode) {
     /// Nearest pixel sampling.
     nearest = c.SDL_SCALEMODE_NEAREST,
     /// Linear pixel sampling.
@@ -550,9 +550,9 @@ pub const Surface = packed struct {
     ) !Surface {
         const ret = c.SDL_ConvertSurface(
             self.value,
-            format.value,
+            @intFromEnum(format),
         );
-        return Surface{ .value = try errors.wrapNull(*c.SDL_Surface, ret) };
+        return Surface{ .value = try errors.wrapCallNull(*c.SDL_Surface, ret) };
     }
 
     /// Copy an existing surface to a new surface of the specified format and colorspace.
@@ -587,12 +587,12 @@ pub const Surface = packed struct {
     ) !Surface {
         const ret = c.SDL_ConvertSurfaceAndColorspace(
             self.value,
-            format.value,
+            @intFromEnum(format),
             if (palette) |palette_val| palette_val.value else null,
-            colorspace.value,
+            @intFromEnum(colorspace),
             if (color_properties) |val| val.value else 0,
         );
-        return Surface{ .value = try errors.wrapNull(*c.SDL_Surface, ret) };
+        return Surface{ .value = try errors.wrapCallNull(*c.SDL_Surface, ret) };
     }
 
     /// Create a palette and associate it with a surface.
@@ -625,7 +625,7 @@ pub const Surface = packed struct {
         const ret = c.SDL_CreateSurfacePalette(
             self.value,
         );
-        return pixels.Palette{ .value = try errors.wrapNull(*c.SDL_Palette, ret) };
+        return pixels.Palette{ .value = try errors.wrapCallNull(*c.SDL_Palette, ret) };
     }
 
     /// Free a surface.
@@ -670,7 +670,7 @@ pub const Surface = packed struct {
         const ret = c.SDL_DuplicateSurface(
             self.value,
         );
-        return Surface{ .value = try errors.wrapNull(*c.SDL_Surface, ret) };
+        return Surface{ .value = try errors.wrapCallNull(*c.SDL_Surface, ret) };
     }
 
     /// Perform a fast fill of a rectangle with a specific color.
@@ -808,7 +808,7 @@ pub const Surface = packed struct {
             &mode,
         );
         try errors.wrapCallBool(ret);
-        return errors.wrapNull(blend_mode.Mode, blend_mode.Mode.fromSdl(mode));
+        return errors.wrapCallNull(blend_mode.Mode, blend_mode.Mode.fromSdl(mode));
     }
 
     /// Get the clipping rectangle for a surface.
@@ -917,11 +917,11 @@ pub const Surface = packed struct {
     /// This function is available since SDL 3.2.0.
     pub fn getColorspace(
         self: Surface,
-    ) pixels.Colorspace {
+    ) ?pixels.Colorspace {
         const ret = c.SDL_GetSurfaceColorspace(
             self.value,
         );
-        return pixels.Colorspace{ .value = ret };
+        return pixels.Colorspace.fromSdl(ret);
     }
 
     /// Get the surface flags.
@@ -997,7 +997,7 @@ pub const Surface = packed struct {
     ) ![]Surface {
         var count: c_int = undefined;
         const ret = c.SDL_GetSurfaceImages(self.value, &count);
-        return @as([*]Surface, @ptrCast(try errors.wrapNull(*[*c]c.SDL_Surface, ret)))[0..@intCast(count)];
+        return @as([*]Surface, @ptrCast(try errors.wrapCallNull(*[*c]c.SDL_Surface, ret)))[0..@intCast(count)];
     }
 
     /// Get the palette used by a surface.
@@ -1225,9 +1225,9 @@ pub const Surface = packed struct {
         const ret = c.SDL_CreateSurface(
             @intCast(width),
             @intCast(height),
-            format.value,
+            @intFromEnum(format),
         );
-        return Surface{ .value = try errors.wrapNull(*c.SDL_Surface, ret) };
+        return Surface{ .value = try errors.wrapCallNull(*c.SDL_Surface, ret) };
     }
 
     /// Allocate a new surface with a specific pixel format and data in the format.
@@ -1263,11 +1263,11 @@ pub const Surface = packed struct {
         const ret = c.SDL_CreateSurfaceFrom(
             @intCast(width),
             @intCast(height),
-            format.value,
+            @intFromEnum(format),
             if (pixel_data) |val| @constCast(val.ptr) else null,
             if (pixel_data) |val| @intCast(val.len / height) else 0,
         );
-        return Surface{ .value = try errors.wrapNull(*c.SDL_Surface, ret) };
+        return Surface{ .value = try errors.wrapCallNull(*c.SDL_Surface, ret) };
     }
 
     /// Load a BMP image from a file.
@@ -1293,7 +1293,7 @@ pub const Surface = packed struct {
         const ret = c.SDL_LoadBMP(
             path.ptr,
         );
-        return Surface{ .value = try errors.wrapNull(*c.SDL_Surface, ret) };
+        return Surface{ .value = try errors.wrapCallNull(*c.SDL_Surface, ret) };
     }
 
     /// Create a surface from a BMP image from a seekable stream.
@@ -1322,7 +1322,7 @@ pub const Surface = packed struct {
             stream.value,
             close_stream_after,
         );
-        return Surface{ .value = try errors.wrapNull(*c.SDL_Surface, ret) };
+        return Surface{ .value = try errors.wrapCallNull(*c.SDL_Surface, ret) };
     }
 
     /// Set up a surface for directly accessing the pixels.
@@ -1670,7 +1670,7 @@ pub const Surface = packed struct {
             @intCast(height),
             @bitCast(@intFromEnum(scale_mode)),
         );
-        return Surface{ .value = try errors.wrapNull(*c.SDL_Surface, ret) };
+        return Surface{ .value = try errors.wrapCallNull(*c.SDL_Surface, ret) };
     }
 
     /// Set an additional alpha value used in blit operations.
@@ -1719,7 +1719,7 @@ pub const Surface = packed struct {
     ) !void {
         const ret = c.SDL_SetSurfaceBlendMode(
             self.value,
-            mode.value,
+            blend_mode.Mode.toSdl(mode),
         );
         return errors.wrapCallBool(ret);
     }
@@ -1836,7 +1836,7 @@ pub const Surface = packed struct {
     ) !void {
         const ret = c.SDL_SetSurfaceColorspace(
             self.value,
-            colorspace.value,
+            @intFromEnum(colorspace),
         );
         return errors.wrapCallBool(ret);
     }
@@ -2062,10 +2062,10 @@ pub fn convertPixels(
     const ret = c.SDL_ConvertPixels(
         @intCast(width),
         @intCast(height),
-        src_format.value,
+        @intFromEnum(src_format),
         src.ptr,
         @intCast(src.len / height),
-        dst_format.value,
+        @intFromEnum(dst_format),
         dst.ptr,
         @intCast(dst.len / height),
     );
@@ -2107,13 +2107,13 @@ pub fn convertPixelsAndColorspace(
     const ret = c.SDL_ConvertPixelsAndColorspace(
         @intCast(width),
         @intCast(height),
-        src_format.value,
-        src_colorspace.value,
+        @intFromEnum(src_format),
+        @intFromEnum(src_colorspace),
         if (src_properties) |val| val.value else 0,
         src.ptr,
         @intCast(src.len / height),
-        dst_format.value,
-        dst_colorspace.value,
+        @intFromEnum(dst_format),
+        @intFromEnum(dst_colorspace),
         if (dst_properties) |val| val.value else 0,
         dst.ptr,
         @intCast(dst.len / height),
@@ -2153,10 +2153,10 @@ pub fn premultiplyAlpha(
     const ret = c.SDL_PremultiplyAlpha(
         @intCast(width),
         @intCast(height),
-        src_format.value,
+        @intFromEnum(src_format),
         src.ptr,
         @intCast(src.len / height),
-        dst_format.value,
+        @intFromEnum(dst_format),
         dst.ptr,
         @intCast(dst.len / height),
         linear,

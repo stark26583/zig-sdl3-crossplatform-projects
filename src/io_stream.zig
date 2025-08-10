@@ -76,102 +76,200 @@ pub const FileMode = enum {
 ///
 /// ## Version
 /// This struct is available since SDL 3.2.0.
-pub const Interface = struct {
-    /// Returns the number of bytes in the stream.
-    ///
-    /// ## Function Parameters
-    /// * `user_data`: User context.
-    ///
-    /// ## Return Value
-    /// The total size of the data stream, or `-1` on error.
-    size: *const fn (user_data: ?*anyopaque) callconv(.c) i64,
-    /// Seek to `offset` relative to `whence`.
-    ///
-    /// ## Function Parameters
-    /// * `user_data`: User context.
-    /// * `offset`: Offset to seek from.
-    /// * `whence`: Where to seek relative to.
-    ///
-    /// ## Return Value
-    /// The final offset in the data stream, or `-1` on error.
-    seek: *const fn (user_data: ?*anyopaque, offset: i64, whence: c.SDL_IOWhence) callconv(.c) i64,
-    /// Read up to `size` bytes from the data stream to the area pointed at by `ptr`.
-    ///
-    /// ## Function Parameters
-    /// * `user_data`: User context.
-    /// * `ptr`: Pointer to read into.
-    /// * `size`: Maximum amount of data to read.
-    /// * `status`: Output status.
-    ///
-    /// ## Remarks
-    /// Set `status` on incomplete read.
-    ///
-    /// ## Return Value
-    /// The number of bytes read.
-    read: *const fn (user_data: ?*anyopaque, ptr: ?*anyopaque, size: usize, status: [*c]c.SDL_IOStatus) callconv(.c) usize,
-    /// Write up to `size` bytes to the data stream from the area pointed at by `ptr`.
-    ///
-    /// ## Function Parameters
-    /// * `user_data`: User context.
-    /// * `ptr`: Pointer to read into.
-    /// * `size`: Maximum amount of data to write.
-    /// * `status`: Output status.
-    ///
-    /// ## Remarks
-    /// Set `status` on incomplete write.
-    ///
-    /// ## Return Value
-    /// The number of bytes written.
-    write: *const fn (user_data: ?*anyopaque, ptr: ?*const anyopaque, size: usize, status: [*c]c.SDL_IOStatus) callconv(.c) usize,
-    /// If the stream is buffering, make sure the data is written out.
-    ///
-    /// ## Function Parameters
-    /// * `user_data`: User context.
-    ///
-    /// ## Remarks
-    /// Set `status` on failure.
-    ///
-    /// ## Return Value
-    /// True if successful.
-    flush: *const fn (user_data: ?*anyopaque, status: [*c]c.SDL_IOStatus) callconv(.c) bool,
-    /// Close and free any allocated resources.
-    ///
-    /// ## Function Parameters
-    /// * `user_data`: User context.
-    ///
-    /// ## Remarks
-    /// This does not guarantee file writes will sync to physical media; they can be in the system's file cache, waiting to go to disk.
-    /// The stream is still destroyed even if this fails, so clean up anything even if flushing buffers, etc, returns an error.
-    ///
-    /// ## Return Value
-    /// True if successful.
-    close: *const fn (user_data: ?*anyopaque) callconv(.c) bool,
+pub fn Interface(comptime UserData: type) type {
+    return struct {
+        /// Returns the number of bytes in the stream.
+        ///
+        /// ## Function Parameters
+        /// * `user_data`: User context.
+        ///
+        /// ## Return Value
+        /// The total size of the data stream.
+        size: *const fn (user_data: ?*UserData) anyerror!usize,
 
-    /// Convert from an SDL value.
-    pub fn fromSdl(value: c.SDL_IOStreamInterface) Interface {
-        return .{
-            .size = value.size.?,
-            .seek = value.seek.?,
-            .read = value.read.?,
-            .write = value.write.?,
-            .flush = value.flush.?,
-            .close = value.close.?,
-        };
-    }
+        /// Seek to `offset` relative to `whence`.
+        ///
+        /// ## Function Parameters
+        /// * `user_data`: User context.
+        /// * `offset`: Offset to seek from.
+        /// * `whence`: Where to seek relative to.
+        ///
+        /// ## Return Value
+        /// The final offset in the data stream.
+        seek: *const fn (user_data: ?*UserData, offset: isize, whence: Whence) anyerror!usize,
 
-    /// Convert to an SDL value.
-    pub fn toSdl(self: Interface) c.SDL_IOStreamInterface {
-        return .{
-            .version = @sizeOf(c.SDL_IOStreamInterface),
-            .size = self.size,
-            .seek = self.seek,
-            .read = self.read,
-            .write = self.write,
-            .flush = self.flush,
-            .close = self.close,
-        };
-    }
-};
+        /// Read up to `size` bytes from the data stream to the area pointed at by `ptr`.
+        ///
+        /// ## Function Parameters
+        /// * `user_data`: User context.
+        /// * `buf`: The buffer to read into.
+        /// * `status`: Output status.
+        ///
+        /// ## Return Value
+        /// The actual read buffer data.
+        read: *const fn (user_data: ?*UserData, buf: []u8) Error!?[]u8,
+
+        /// Write up to `size` bytes to the data stream from the area pointed at by `ptr`.
+        ///
+        /// ## Function Parameters
+        /// * `user_data`: User context.
+        /// * `data`: Data to write.
+        ///
+        /// ## Return Value
+        /// The number of bytes written.
+        write: *const fn (user_data: ?*UserData, data: []const u8) Error!usize,
+
+        /// If the stream is buffering, make sure the data is written out.
+        ///
+        /// ## Function Parameters
+        /// * `user_data`: User context.
+        flush: *const fn (user_data: ?*UserData) Error!void,
+
+        /// Close and free any allocated resources.
+        ///
+        /// ## Function Parameters
+        /// * `user_data`: User context.
+        ///
+        /// ## Remarks
+        /// This does not guarantee file writes will sync to physical media; they can be in the system's file cache, waiting to go to disk.
+        /// The stream is still destroyed even if this fails, so clean up anything even if flushing buffers, etc, returns an error.
+        close: *const fn (user_data: ?*UserData) anyerror!void,
+
+        /// Convert to an SDL value.
+        pub fn toSdl(self: Interface(UserData)) c.SDL_IOStreamInterface {
+            const Cb = struct {
+                /// Returns the number of bytes in the stream.
+                ///
+                /// ## Function Parameters
+                /// * `user_data`: User context.
+                ///
+                /// ## Return Value
+                /// The total size of the data stream, or `-1` on error.
+                pub fn size_c(user_data_c: ?*anyopaque) callconv(.c) i64 {
+                    const ret = self.size(@alignCast(@ptrCast(user_data_c))) catch return -1;
+                    return @intCast(ret);
+                }
+
+                /// Seek to `offset` relative to `whence`.
+                ///
+                /// ## Function Parameters
+                /// * `user_data`: User context.
+                /// * `offset`: Offset to seek from.
+                /// * `whence`: Where to seek relative to.
+                ///
+                /// ## Return Value
+                /// The final offset in the data stream, or `-1` on error.
+                pub fn seek_c(user_data_c: ?*anyopaque, offset_c: i64, whence_c: c.SDL_IOWhence) callconv(.c) i64 {
+                    const ret = self.seek(@alignCast(@ptrCast(user_data_c)), @intCast(offset_c), @enumFromInt(whence_c)) catch return -1;
+                    return @intCast(ret);
+                }
+
+                /// Read up to `size` bytes from the data stream to the area pointed at by `ptr`.
+                ///
+                /// ## Function Parameters
+                /// * `user_data`: User context.
+                /// * `ptr`: Pointer to read into.
+                /// * `size`: Maximum amount of data to read.
+                /// * `status`: Output status.
+                ///
+                /// ## Remarks
+                /// Set `status` on incomplete read.
+                ///
+                /// ## Return Value
+                /// The number of bytes read.
+                pub fn read_c(user_data_c: ?*anyopaque, ptr_c: ?*anyopaque, size_c_val: usize, status_c: [*c]c.SDL_IOStatus) callconv(.c) usize {
+                    const ret = self.read(@alignCast(@ptrCast(user_data_c)), @as([*]u8, @alignCast(@ptrCast(ptr_c)))[0..@intCast(size_c_val)]) catch |err| {
+                        status_c.* = switch (err) {
+                            .Err => c.SDL_IO_STATUS_ERROR,
+                            .NotReady => c.SDL_IO_STATUS_NOT_READY,
+                            .ReadOnly => c.SDL_IO_STATUS_READONLY,
+                            .WriteOnly => c.SDL_IO_STATUS_WRITEONLY,
+                        };
+                        return 0;
+                    };
+                    status_c.* = c.SDL_IO_STATUS_READY;
+                    return if (ret) |val| @intCast(val.len) else 0;
+                }
+
+                /// Write up to `size` bytes to the data stream from the area pointed at by `ptr`.
+                ///
+                /// ## Function Parameters
+                /// * `user_data`: User context.
+                /// * `ptr`: Pointer to read into.
+                /// * `size`: Maximum amount of data to write.
+                /// * `status`: Output status.
+                ///
+                /// ## Remarks
+                /// Set `status` on incomplete write.
+                ///
+                /// ## Return Value
+                /// The number of bytes written.
+                pub fn write_c(user_data_c: ?*anyopaque, ptr_c: ?*const anyopaque, size_c_val: usize, status_c: [*c]c.SDL_IOStatus) callconv(.c) usize {
+                    const ret = self.write(@alignCast(@ptrCast(user_data_c)), @as([*]const u8, @alignCast(@ptrCast(ptr_c)))[0..@intCast(size_c_val)]) catch |err| {
+                        status_c.* = switch (err) {
+                            .Err => c.SDL_IO_STATUS_ERROR,
+                            .NotReady => c.SDL_IO_STATUS_NOT_READY,
+                            .ReadOnly => c.SDL_IO_STATUS_READONLY,
+                            .WriteOnly => c.SDL_IO_STATUS_WRITEONLY,
+                        };
+                        return 0;
+                    };
+                    status_c.* = c.SDL_IO_STATUS_READY;
+                    return ret;
+                }
+
+                /// If the stream is buffering, make sure the data is written out.
+                ///
+                /// ## Function Parameters
+                /// * `user_data`: User context.
+                ///
+                /// ## Remarks
+                /// Set `status` on failure.
+                ///
+                /// ## Return Value
+                /// True if successful.
+                pub fn flush_c(user_data_c: ?*anyopaque, status: [*c]c.SDL_IOStatus) callconv(.c) bool {
+                    self.flush(@alignCast(@ptrCast(user_data_c))) catch |err| {
+                        status.* = switch (err) {
+                            .Err => c.SDL_IO_STATUS_ERROR,
+                            .NotReady => c.SDL_IO_STATUS_NOT_READY,
+                            .ReadOnly => c.SDL_IO_STATUS_READONLY,
+                            .WriteOnly => c.SDL_IO_STATUS_WRITEONLY,
+                        };
+                        return false;
+                    };
+                    status.* = c.SDL_IO_STATUS_READY;
+                    return true;
+                }
+
+                /// Close and free any allocated resources.
+                ///
+                /// ## Function Parameters
+                /// * `user_data`: User context.
+                ///
+                /// ## Remarks
+                /// This does not guarantee file writes will sync to physical media; they can be in the system's file cache, waiting to go to disk.
+                /// The stream is still destroyed even if this fails, so clean up anything even if flushing buffers, etc, returns an error.
+                ///
+                /// ## Return Value
+                /// True if successful.
+                pub fn close_c(user_data_c: ?*anyopaque) callconv(.c) bool {
+                    self.close(@alignCast(@ptrCast(user_data_c))) catch return false;
+                    return true;
+                }
+            };
+            return .{
+                .version = @sizeOf(c.SDL_IOStreamInterface),
+                .size = if (self.size != null) Cb.size_c else null,
+                .seek = if (self.seek != null) Cb.seek_c else null,
+                .read = if (self.read != null) Cb.read_c else null,
+                .write = if (self.write != null) Cb.write_c else null,
+                .flush = if (self.flush != null) Cb.flush_c else null,
+                .close = if (self.close != null) Cb.close_c else null,
+            };
+        }
+    };
+}
 
 /// The read/write operation structure.
 ///
@@ -373,6 +471,7 @@ pub const Stream = struct {
     /// Create a custom stream.
     ///
     /// ## Function Parameters
+    /// * `UserData`: Type of user data.
     /// * `interface`: The interface that implements this stream.
     /// * `user_data`: User data that will be passed to the interface functions.
     ///
@@ -392,12 +491,13 @@ pub const Stream = struct {
     /// ## Version
     /// This function is available since SDL 3.2.0.
     pub fn init(
-        interface: Interface,
-        user_data: ?*anyopaque,
+        comptime UserData: type,
+        comptime interface: Interface(UserData),
+        user_data: ?*UserData,
     ) !Stream {
         const interface_sdl = interface.toSdl();
         return .{
-            .value = try errors.wrapNull(*c.SDL_IOStream, c.SDL_OpenIO(
+            .value = try errors.wrapCallNull(*c.SDL_IOStream, c.SDL_OpenIO(
                 &interface_sdl,
                 user_data,
             )),
@@ -432,7 +532,7 @@ pub const Stream = struct {
         data: []const u8,
     ) !Stream {
         return .{
-            .value = try errors.wrapNull(*c.SDL_IOStream, c.SDL_IOFromConstMem(
+            .value = try errors.wrapCallNull(*c.SDL_IOStream, c.SDL_IOFromConstMem(
                 data.ptr,
                 data.len,
             )),
@@ -454,7 +554,7 @@ pub const Stream = struct {
     /// This function is available since SDL 3.2.0.
     pub fn initFromDynamicMem() !Stream {
         return .{
-            .value = try errors.wrapNull(*c.SDL_IOStream, c.SDL_IOFromDynamicMem()),
+            .value = try errors.wrapCallNull(*c.SDL_IOStream, c.SDL_IOFromDynamicMem()),
         };
     }
 
@@ -485,7 +585,7 @@ pub const Stream = struct {
         mode: FileMode,
     ) !Stream {
         return .{
-            .value = try errors.wrapNull(*c.SDL_IOStream, c.SDL_IOFromFile(path.ptr, switch (mode) {
+            .value = try errors.wrapCallNull(*c.SDL_IOStream, c.SDL_IOFromFile(path.ptr, switch (mode) {
                 .append_binary => "ab",
                 .append_text => "a",
                 .read_append_binary => "a+b",
@@ -527,7 +627,7 @@ pub const Stream = struct {
         data: []u8,
     ) !Stream {
         return .{
-            .value = try errors.wrapNull(*c.SDL_IOStream, c.SDL_IOFromMem(
+            .value = try errors.wrapCallNull(*c.SDL_IOStream, c.SDL_IOFromMem(
                 data.ptr,
                 data.len,
             )),
@@ -584,7 +684,7 @@ pub const Stream = struct {
         close_when_done: bool,
     ) ![:0]u8 {
         var len: usize = undefined;
-        return @as([*:0]u8, @alignCast(@ptrCast(try errors.wrapNull(*anyopaque, c.SDL_LoadFile_IO(
+        return @as([*:0]u8, @alignCast(@ptrCast(try errors.wrapCallNull(*anyopaque, c.SDL_LoadFile_IO(
             self.value,
             &len,
             close_when_done,
@@ -1808,7 +1908,7 @@ pub const Stream = struct {
 ///
 /// ## Version
 /// This enum is available since SDL 3.2.0.
-pub const Whence = enum(c_uint) {
+pub const Whence = enum(c.SDL_IOWhence) {
     /// Seek from the beginning of data.
     set = c.SDL_IO_SEEK_SET,
     /// Seek relative to current read point.
@@ -1900,7 +2000,7 @@ pub fn loadFile(
     path: [:0]const u8,
 ) ![:0]u8 {
     var len: usize = undefined;
-    return @as([*:0]u8, @alignCast(@ptrCast(try errors.wrapNull(*anyopaque, c.SDL_LoadFile(
+    return @as([*:0]u8, @alignCast(@ptrCast(try errors.wrapCallNull(*anyopaque, c.SDL_LoadFile(
         path.ptr,
         &len,
     )))))[0..len :0];

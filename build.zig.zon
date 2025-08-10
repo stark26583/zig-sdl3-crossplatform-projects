@@ -3,16 +3,12 @@
     .version = "0.0.0",
     .dependencies = .{
         .sdl = .{
-            .url = "git+https://github.com/stark26583/SDL.git#57fbc61e08656d1c8031884efa80a704fd8ab2cc",
-            .hash = "sdl-0.2.2+3.2.12-7uIn9Ds_gwF5lb9YTb8vWUd-oeL2S4dXtxA5dssebRso",
+            .url = "git+https://github.com/mozbeel/SDL-zig.git#e97d11c5687c0d2d1d489b562856f18dec51446a",
+            .hash = "sdl-0.2.5+3.2.18-7uIn9LppggHBWiKmwXXf4aqL_t24bbkFwHigz0pFyfPD",
         },
         .android = .{
-            .url = "git+https://github.com/silbinarywolf/zig-android-sdk#17aa6475b12bea73cd7d07480b433d2f2d9d7c1c",
-            .hash = "android-0.1.0-7iz7QoSaAQCGbFl_CMg5mPgHq4_vogPxzxlhWpr5rM88",
-        },
-        .sdl_image = .{
-            .url = "git+https://github.com/stark26583/SDL_image.git#ebc75a00558beeb9cdb33f2a31c959d0321cc469",
-            .hash = "sdl_image-3.2.4-gpMA10ITAADtvLrO1ifl5b62GTOAbajcPV0SsrogIHIX",
+            .url = "git+https://github.com/silbinarywolf/zig-android-sdk.git#f3ddba2eaa646cc2eb0a54bbb2dd45e5e34b82cd",
+            .hash = "android-0.1.0-7iz7QonGAQD13s0QwlB6YPnwh2yhShuUARO2WZQmuaOA",
         },
         .zstbi = .{
             .url = "git+https://github.com/zig-gamedev/zstbi#094c4bba5cdbec167d3f6aaa98cccccd5c99145f",
@@ -22,17 +18,37 @@
         //     .url = "git+https://github.com/stark26583/SDL_ttf.git#030c450b07e86fb6e9587582a15dadc2784f053e",
         //     .hash = "sdl_ttf-3.2.0-Rlu22nkNAADv7WJwI2XqMwhXZarZSOsIjY-nYLVqU3_B",
         // },
-        // .dvui = .{
-        //     .url = "git+https://github.com/stark26583/dvui.git#3e9f3c4b957bb699c28b979fd7d05b47bb0cdafb",
-        //     .hash = "dvui-0.2.0-AQFJmSn0zQBEkvy5v_seBkcIjXf5Jxk5Um0-h0HHkhD0",
-        // },
+        .zgui = .{
+            .url = "git+https://github.com/tonitch/zgui.git?ref=sdl_renderer#7c5ccd306b751a5eee9d60b4e24d4c3b5df1ad5e",
+            .hash = "zgui-0.6.0-dev--L6sZNJ7aQBGVIlhGlzjYzEaoGOsOsGPsTG-Fr-lMfPx",
+        },
         .zmath = .{
             .url = "git+https://github.com/zig-gamedev/zmath.git#6a0747fe6834e58793500e05953c4c6ca045d3e1",
             .hash = "zmath-0.11.0-dev-wjwivTArAwDIkHSuSiU3KuBvxh7igjJjJMqYRfy3hihO",
         },
         .assetpack = .{
-            .url = "git+https://github.com/silversquirl/assetpack#e3946b23c94ee942cfddb7a6e8d8bca931239cec",
-            .hash = "assetpack-0.1.0-5DA2d_ccAAAVugj7tTZLEpBVaxKotsO4_VmSAnSKjvHm",
+            .url = "git+https://github.com/silversquirl/assetpack.git#996cad7cb450314e59727c37601b153aaa050ac2",
+            .hash = "assetpack-0.1.0-5DA2d09lAAAW6vBR2pYjiDyCGMzmbcz2hfdyUs6iqf1G",
+        },
+        // .zgltf = .{
+        //     .url = "git+https://github.com/kooparse/zgltf.git#9c82e04aa0ff9418a29a588573b4aa5f83195fc6",
+        //     .hash = "zgltf-0.1.0-sX6QAt0TAgDvPeZcAjqLu4ANd3QSaOx3QDsssykcLYiC",
+        // },
+        .zmesh = .{
+            .url = "git+https://github.com/zig-gamedev/zmesh#06ca952e4a5ed5f6ac6aafa18c0a60433fda7a03",
+            .hash = "zmesh-0.11.0-dev-oO3A5jF7CgBzPlsy4p-tZeDsINxp3_CwNpGYx7OQcRlE",
+        },
+        .gltf_parser = .{
+            .url = "git+https://github.com/zig-gamedev/gltf-parser.git#5d75bad3d0ace9ae64a60e4f011fe00a3ef8d3a0",
+            .hash = "gltf_parser-0.0.0-GdOs-qMPAAAI4op56rHvPu1_X2yviCl-rHOXdBCcEUwJ",
+        },
+        .zgltf = .{
+            .url = "git+https://github.com/kooparse/zgltf.git#9c82e04aa0ff9418a29a588573b4aa5f83195fc6",
+            .hash = "zgltf-0.1.0-sX6QAt0TAgDvPeZcAjqLu4ANd3QSaOx3QDsssykcLYiC",
+        },
+        .zemscripten = .{
+            .url = "git+https://github.com/zig-gamedev/zemscripten#97eb64f422a110a813f298585acbfb604f7fe08c",
+            .hash = "zemscripten-0.2.0-dev-sRlDqLZNAABqYJZMdZSczedrT29D5Wu2t5kLci0yd9uU",
         },
     },
     .paths = .{

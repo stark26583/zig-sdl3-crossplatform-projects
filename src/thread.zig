@@ -10,7 +10,7 @@ const std = @import("std");
 ///
 /// ## Version
 /// This datatype is available since SDL 3.2.0.
-pub const ID = packed struct {
+pub const Id = packed struct {
     value: c.SDL_ThreadID,
 };
 
@@ -23,7 +23,7 @@ pub const ID = packed struct {
 ///
 /// ## Version
 /// This enum is available since SDL 3.2.0.
-pub const Priority = enum(c_uint) {
+pub const Priority = enum(c.SDL_ThreadPriority) {
     low = c.SDL_THREAD_PRIORITY_LOW,
     normal = c.SDL_THREAD_PRIORITY_NORMAL,
     high = c.SDL_THREAD_PRIORITY_HIGH,
@@ -37,7 +37,7 @@ pub const Priority = enum(c_uint) {
 ///
 /// ## Version
 /// This enum is available since SDL 3.2.0.
-pub const State = enum(c_uint) {
+pub const State = enum(c.SDL_ThreadState) {
     /// The thread is currently running.
     alive,
     /// The thread is detached and can't be waited on.
@@ -180,7 +180,7 @@ pub const Thread = packed struct {
                 return func(@alignCast(@ptrCast(user_data_c)));
             }
         };
-        return .{ .value = try errors.wrapNull(*c.SDL_Thread, c.SDL_CreateThread(Cb.run, if (name) |val| val.ptr else null, data)) };
+        return .{ .value = try errors.wrapCallNull(*c.SDL_Thread, c.SDL_CreateThread(Cb.run, if (name) |val| val.ptr else null, data)) };
     }
 
     /// Create a new thread with with the specified properties.
@@ -229,7 +229,7 @@ pub const Thread = packed struct {
     ) !Thread {
         const init_props = try props.toSdl();
         defer init_props.deinit();
-        return .{ .value = try errors.wrapNull(*c.SDL_Thread, c.SDL_CreateThreadWithProperties(init_props.value)) };
+        return .{ .value = try errors.wrapCallNull(*c.SDL_Thread, c.SDL_CreateThreadWithProperties(init_props.value)) };
     }
 
     /// Get the thread identifier for the specified thread.
@@ -251,7 +251,7 @@ pub const Thread = packed struct {
     /// TODO!!!
     pub fn getId(
         self: Thread,
-    ) ID {
+    ) Id {
         return .{ .value = c.SDL_GetThreadID(self.value) };
     }
 
@@ -341,10 +341,10 @@ pub fn ThreadFunction(
     ) c_int;
 }
 
-/// The callback used to cleanup data passed to `thread.TLSID.set()`.
+/// The callback used to cleanup data passed to `thread.TlsId.set()`.
 ///
 /// ## Function Parameters
-/// * `value`: A pointer previously handed to `thread.TLSID.set()`.
+/// * `value`: A pointer previously handed to `thread.TlsId.set()`.
 ///
 /// ## Remarks
 /// This is called when a thread exits, to allow an app to free any resources.
@@ -366,7 +366,7 @@ pub fn TlsDestructorCallback(
 ///
 /// ## Version
 /// This datatype is available since SDL 3.2.0.
-pub const TLSID = struct {
+pub const TlsId = struct {
     value: c.SDL_TLSID,
 
     /// Initialize thread local storage.
@@ -379,7 +379,7 @@ pub const TLSID = struct {
     ///
     /// ## Version
     /// This function is available since SDL 3.2.0.
-    pub fn init() TLSID {
+    pub fn init() TlsId {
         return .{ .value = .{} };
     }
 
@@ -397,9 +397,9 @@ pub const TLSID = struct {
     /// ## Version
     /// This function is available since SDL 3.2.0.
     pub fn get(
-        self: *TLSID,
+        self: *TlsId,
     ) !*anyopaque {
-        return errors.wrapNull(*anyopaque, c.SDL_GetTLS(&self.value));
+        return errors.wrapCallNull(*anyopaque, c.SDL_GetTLS(&self.value));
     }
 
     /// Set the current thread's value associated with a thread local storage ID.
@@ -423,7 +423,7 @@ pub const TLSID = struct {
     /// ## Version
     /// This function is available since SDL 3.2.0.
     pub fn set(
-        self: *TLSID,
+        self: *TlsId,
         comptime ValueType: type,
         value: ?*const ValueType,
         comptime destructor: ?TlsDestructorCallback(ValueType),
@@ -463,7 +463,7 @@ pub fn cleanupTls() void {
 ///
 /// ## Version
 /// This function is available since SDL 3.2.0.
-pub fn getCurrentId() ID {
+pub fn getCurrentId() Id {
     return .{ .value = c.SDL_GetCurrentThreadID() };
 }
 
@@ -507,7 +507,7 @@ test "Thread" {
     const t2 = try Thread.initWithProperties(void, threadFunc, .{});
     t2.detach();
 
-    var id = TLSID.init();
+    var id = TlsId.init();
     _ = id.get() catch {};
     id.set(void, null, null) catch {};
 

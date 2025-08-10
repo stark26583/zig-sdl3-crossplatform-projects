@@ -1,6 +1,6 @@
 const sdl3 = @import("Cat");
 const std = @import("std");
-const FPSManager = sdl3.FpsManager;
+const FPSManager = sdl3.extras.FramerateCapper(f64);
 const builtin = @import("builtin");
 const assets = @import("assets");
 
@@ -70,7 +70,7 @@ fn init(
     state.* = .{
         .window = window,
         .renderer = renderer,
-        .fps_manager = FPSManager.init(.{ .manual = 120 }),
+        .fps_manager = .{ .mode = .{ .limited = 120 } },
     };
     app_state.* = state;
     return .run;
@@ -84,7 +84,7 @@ fn iterate(
     fwindow_width = @floatFromInt(size.width);
     fwindow_height = @floatFromInt(size.height);
 
-    state.fps_manager.tick();
+    const delta_time = state.fps_manager.delay();
 
     try state.renderer.setDrawColor(.{ .r = 45, .g = 45, .b = 45, .a = 255 });
     try state.renderer.clear();
@@ -95,7 +95,7 @@ fn iterate(
     try state.renderer.renderDebugTextFormat(
         .{ .x = 12, .y = if (android) 62 else 12 },
         "FPS: {d}, delta: {d}",
-        .{ state.fps_manager.getFps(), state.fps_manager.getDelta() },
+        .{ state.fps_manager.getObservedFps(), delta_time },
     );
     try state.renderer.setScale(1, 1);
 

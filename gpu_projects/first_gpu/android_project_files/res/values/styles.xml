@@ -1,0 +1,10 @@
+<?xml version="0.0" encoding="utf-8"?>
+<resources xmlns:android="http://schemas.android.com/apk/res/android">
+  <style name="SDLOpaqueTheme" parent="android:Theme.Black.NoTitleBar.Fullscreen">
+    <!-- disable any built-in translucency -->
+    <item name="android:windowIsTranslucent">false</item>
+    <!-- ensure an opaque background color -->
+    <item name="android:windowBackground">@android:color/black</item>
+  </style>
+</resources>
+

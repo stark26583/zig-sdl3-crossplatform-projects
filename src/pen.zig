@@ -14,7 +14,7 @@ const std = @import("std");
 ///
 /// ## Version
 /// This enum is available since SDL 3.2.0.
-pub const Axis = enum(c_uint) {
+pub const Axis = enum(c.SDL_PenAxis) {
     /// Pen pressure. Unidirectional 0 to 1.0
     pressure = c.SDL_PEN_AXIS_PRESSURE,
     /// Pen horizontal tilt angle. Bidirectional -90.0 to 90.0 (left-to-right).
@@ -39,12 +39,12 @@ pub const Axis = enum(c_uint) {
 ///
 /// ## Version
 /// This datatype is available since SDL 3.2.0.
-pub const ID = packed struct {
+pub const Id = packed struct {
     value: c.SDL_PenID,
 
     // Size tests.
     comptime {
-        std.debug.assert(@sizeOf(c.SDL_PenID) == @sizeOf(ID));
+        std.debug.assert(@sizeOf(c.SDL_PenID) == @sizeOf(Id));
     }
 };
 

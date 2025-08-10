@@ -14,7 +14,7 @@ const video = @import("video.zig");
 ///
 /// ## Version
 /// This enum is available since SDL 3.2.0.
-pub const Capitalization = enum(c_uint) {
+pub const Capitalization = enum(c.SDL_Capitalization) {
     /// No capitalization will be done.
     none,
     /// The first letter of sentences will be capitalized.
@@ -79,7 +79,7 @@ pub const TextInputProperties = struct {
 ///
 /// ## Version
 /// This enum is available since SDL 3.2.0.
-pub const TextInputType = enum(c_uint) {
+pub const TextInputType = enum(c.SDL_TextInputType) {
     /// The input is text.
     text = c.SDL_TEXTINPUT_TYPE_TEXT,
     /// The input is a person's name.
@@ -107,12 +107,12 @@ pub const TextInputType = enum(c_uint) {
 ///
 /// ## Version
 /// This datatype is available since SDL 3.2.0.
-pub const ID = packed struct {
+pub const Id = packed struct {
     value: c.SDL_KeyboardID,
 
     // Size tests.
     comptime {
-        std.debug.assert(@sizeOf(c.SDL_KeyboardID) == @sizeOf(ID));
+        std.debug.assert(@sizeOf(c.SDL_KeyboardID) == @sizeOf(Id));
     }
 
     /// Get the name of a keyboard.
@@ -132,7 +132,7 @@ pub const ID = packed struct {
     /// ## Version
     /// This function is available since SDL 3.2.0.
     pub fn getName(
-        self: ID,
+        self: Id,
     ) !?[:0]const u8 {
         const ret = try errors.wrapCallCString(c.SDL_GetKeyboardNameForID(
             self.value,
@@ -194,9 +194,9 @@ pub fn getFocus() ?video.Window {
 ///
 /// ## Version
 /// This function is available since SDL 3.2.0.
-pub fn getKeyboards() ![]ID {
+pub fn getKeyboards() ![]Id {
     var count: c_int = undefined;
-    const ret: [*]ID = @ptrCast(try errors.wrapCallCPtr(c.SDL_KeyboardID, c.SDL_GetKeyboards(
+    const ret: [*]Id = @ptrCast(try errors.wrapCallCPtr(c.SDL_KeyboardID, c.SDL_GetKeyboards(
         &count,
     )));
     return ret[0..@intCast(count)];
@@ -323,7 +323,7 @@ pub fn getModState() keycode.KeyModifier {
 /// This function is available since SDL 3.2.0.
 pub fn getScancodeFromKey(
     key: keycode.Keycode,
-) ?struct { code: scancode.Scancode, key_mod: keycode.KeyModifier } {
+) ?struct { code: ?scancode.Scancode, key_mod: keycode.KeyModifier } {
     var key_mod: c.SDL_Keymod = undefined;
     const ret = c.SDL_GetScancodeFromKey(
         key.toSdl(),
@@ -353,7 +353,7 @@ pub fn getScancodeFromName(
     const ret = c.SDL_GetScancodeFromName(
         name,
     );
-    return scancode.Scancode.fromSdl(@intCast(try errors.wrapCall(c.SDL_Scancode, ret, c.SDL_SCANCODE_UNKNOWN)));
+    return scancode.Scancode.fromSdl(@intCast(try errors.wrapCall(c.SDL_Scancode, ret, c.SDL_SCANCODE_UNKNOWN))).?;
 }
 
 /// Get a human-readable name for a scancode.

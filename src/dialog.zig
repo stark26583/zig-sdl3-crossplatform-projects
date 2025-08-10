@@ -147,7 +147,7 @@ pub const Properties = struct {
 ///
 /// ## Version
 /// This enum is available since SDL 3.2.0.
-pub const Type = enum(c_uint) {
+pub const Type = enum(c.SDL_FileDialogType) {
     open_file = c.SDL_FILEDIALOG_OPENFILE,
     save_file = c.SDL_FILEDIALOG_SAVEFILE,
     open_folder = c.SDL_FILEDIALOG_OPENFOLDER,
@@ -182,7 +182,7 @@ fn sanatizeFileCallback(
         }
     } else {
         err = true;
-        _ = errors.wrapNull(FileCallbackData(UserData), null) catch {};
+        _ = errors.wrapCallNull(FileCallbackData(UserData), null) catch {};
     }
     return .{
         .user_data = @alignCast(@ptrCast(user_data)),

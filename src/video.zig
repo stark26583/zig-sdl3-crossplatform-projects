@@ -5,6 +5,7 @@ const properties = @import("properties.zig");
 const rect = @import("rect.zig");
 const std = @import("std");
 const surface = @import("surface.zig");
+const video = @import("video.zig");
 
 /// Callback used for hit-testing.
 ///
@@ -15,13 +16,22 @@ const surface = @import("surface.zig");
 ///
 /// ## Return Value
 /// Returns a hit test value.
-pub const HitTest = *const fn (win: ?*c.SDL_Window, area: [*c]const c.SDL_Point, user_data: ?*anyopaque) callconv(.c) c.SDL_HitTestResult;
+///
+/// ## Version
+/// This datatype is available since SDL 3.2.0.
+pub fn HitTest(comptime UserData: type) type {
+    return *const fn (
+        win: video.Window,
+        area: rect.IPoint,
+        user_data: ?*UserData,
+    ) HitTestResult;
+}
 
 /// System theme.
 ///
 /// ## Version
 /// This enum is available since SDL 3.2.0.
-pub const SystemTheme = enum(c_uint) {
+pub const SystemTheme = enum(c.SDL_SystemTheme) {
     /// Light colored theme.
     light = c.SDL_SYSTEM_THEME_LIGHT,
     /// Dark colored theme.
@@ -56,6 +66,102 @@ pub const Display = packed struct {
     comptime {
         std.debug.assert(@sizeOf(Display) == @sizeOf(c.SDL_DisplayID));
     }
+
+    /// The structure that defines a display mode.
+    ///
+    /// ## Version
+    /// This struct is available since SDL 3.2.0.
+    pub const Mode = struct {
+        /// The display this mode is associated with.
+        display: ?Display,
+        /// Pixel format.
+        format: ?pixels.Format,
+        /// Width.
+        width: usize,
+        /// Height.
+        height: usize,
+        /// Scale converting size to pixels (e.g. a 1920x1080 mode with 2.0 scale would have 3840x2160 pixels).
+        pixel_density: f32,
+        /// Refresh rate (or `null` for unspecified).
+        refresh_rate: ?f32,
+        /// Precise refresh rate numerator (or 0 for unspecified).
+        refresh_rate_numerator: u32,
+        /// Precise refresh rate denominator.
+        refresh_rate_denominator: u32,
+        /// Private.
+        internal: Data,
+
+        /// Internal display mode data.
+        ///
+        /// ## Remarks
+        /// This lives as a field in `video.Display.Mode`, as opaque data.
+        ///
+        /// ## Version
+        /// This struct is available since SDL 3.2.0.
+        pub const Data = ?*c.SDL_DisplayModeData;
+
+        /// Convert from SDL.
+        pub fn fromSdl(mode: c.SDL_DisplayMode) Mode {
+            return .{
+                .display = if (mode.displayID == 0) null else .{ .value = mode.displayID },
+                .format = pixels.Format.fromSdl(mode.format),
+                .width = @intCast(mode.w),
+                .height = @intCast(mode.h),
+                .pixel_density = mode.pixel_density,
+                .refresh_rate = if (mode.refresh_rate == 0) null else mode.refresh_rate,
+                .refresh_rate_numerator = @intCast(mode.refresh_rate_numerator),
+                .refresh_rate_denominator = @intCast(mode.refresh_rate_denominator),
+                .internal = mode.internal,
+            };
+        }
+
+        /// Convert to SDL.
+        pub fn toSdl(self: Mode) c.SDL_DisplayMode {
+            return .{
+                .displayID = if (self.display) |val| val.value else 0,
+                .format = pixels.Format.toSdl(self.format),
+                .w = @intCast(self.width),
+                .h = @intCast(self.height),
+                .pixel_density = self.pixel_density,
+                .refresh_rate = if (self.refresh_rate) |val| val else 0,
+                .refresh_rate_numerator = @intCast(self.refresh_rate_numerator),
+                .refresh_rate_denominator = @intCast(self.refresh_rate_denominator),
+                .internal = self.internal,
+            };
+        }
+    };
+
+    /// Display orientation values; the way a display is rotated.
+    ///
+    /// ## Version
+    /// This enum is available since SDL 3.2.0.
+    pub const Orientation = enum(c.SDL_DisplayOrientation) {
+        /// The display is in landscape mode, with the right side up, relative to portrait mode.
+        landscape = c.SDL_ORIENTATION_LANDSCAPE,
+        /// The display is in landscape mode, with the left side up, relative to portrait mode.
+        landscape_flipped = c.SDL_ORIENTATION_LANDSCAPE_FLIPPED,
+        /// The display is in portrait mode.
+        portrait = c.SDL_ORIENTATION_PORTRAIT,
+        /// The display is in portrait mode, upside down.
+        portrait_flipped = c.SDL_ORIENTATION_PORTRAIT_FLIPPED,
+
+        /// Convert from SDL.
+        pub fn fromSdl(val: c.SDL_DisplayOrientation) ?Orientation {
+            return switch (val) {
+                c.SDL_ORIENTATION_LANDSCAPE => .landscape,
+                c.SDL_ORIENTATION_LANDSCAPE_FLIPPED => .landscape_flipped,
+                c.SDL_ORIENTATION_PORTRAIT => .portrait,
+                c.SDL_ORIENTATION_PORTRAIT_FLIPPED => .portrait_flipped,
+                else => null,
+            };
+        }
+
+        /// Convert to an SDL value.
+        pub fn toSdl(self: ?Orientation) c.SDL_DisplayOrientation {
+            const val = self orelse return c.SDL_ORIENTATION_UNKNOWN;
+            return @intFromEnum(val);
+        }
+    };
 
     /// Display properties.
     ///
@@ -108,7 +214,7 @@ pub const Display = packed struct {
         height: usize,
         refresh_rate: ?f32,
         include_high_density_modes: bool,
-    ) !DisplayMode {
+    ) !Mode {
         var mode: c.SDL_DisplayMode = undefined;
         const ret = c.SDL_GetClosestFullscreenDisplayMode(
             self.value,
@@ -119,7 +225,7 @@ pub const Display = packed struct {
             &mode,
         );
         try errors.wrapCallBool(ret);
-        return DisplayMode.fromSdl(mode);
+        return Mode.fromSdl(mode);
     }
 
     /// Get information about the current display mode.
@@ -141,10 +247,10 @@ pub const Display = packed struct {
     /// This function is available since SDL 3.2.0.
     pub fn getCurrentMode(
         self: Display,
-    ) !DisplayMode {
+    ) !Mode {
         const ret = c.SDL_GetCurrentDisplayMode(self.value);
         const mode = try errors.wrapCallCPtrConst(c.SDL_DisplayMode, ret);
-        return DisplayMode.fromSdl(mode[0]);
+        return Mode.fromSdl(mode[0]);
     }
 
     /// Get the orientation of a display.
@@ -162,11 +268,11 @@ pub const Display = packed struct {
     /// This function is available since SDL 3.2.0.
     pub fn getCurrentOrientation(
         self: Display,
-    ) ?DisplayOrientation {
+    ) ?Orientation {
         const ret = c.SDL_GetCurrentDisplayOrientation(
             self.value,
         );
-        return DisplayOrientation.fromSdl(ret);
+        return Orientation.fromSdl(ret);
     }
 
     /// Get information about the desktop's display mode.
@@ -188,10 +294,10 @@ pub const Display = packed struct {
     /// This function is available since SDL 3.2.0.
     pub fn getDesktopMode(
         self: Display,
-    ) !DisplayMode {
+    ) !Mode {
         const ret = c.SDL_GetDesktopDisplayMode(self.value);
         const val = try errors.wrapCallCPtrConst(c.SDL_DisplayMode, ret);
-        return DisplayMode.fromSdl(val[0]);
+        return Mode.fromSdl(val[0]);
     }
 
     /// Get the desktop area represented by a display.
@@ -359,13 +465,13 @@ pub const Display = packed struct {
     pub fn getFullscreenModes(
         self: Display,
         allocator: std.mem.Allocator,
-    ) ![]DisplayMode {
+    ) ![]Mode {
         var count: c_int = undefined;
         const val = try errors.wrapCallCPtr([*c]c.SDL_DisplayMode, c.SDL_GetFullscreenDisplayModes(self.value, &count));
         defer c.SDL_free(@ptrCast(val));
-        var ret = try allocator.alloc(DisplayMode, @intCast(count));
+        var ret = try allocator.alloc(Mode, @intCast(count));
         for (0..@intCast(count)) |ind| {
-            ret[ind] = DisplayMode.fromSdl(val[ind].*);
+            ret[ind] = Mode.fromSdl(val[ind].*);
         }
         return ret;
     }
@@ -385,11 +491,11 @@ pub const Display = packed struct {
     /// This function is available since SDL 3.2.0.
     pub fn getNaturalOrientation(
         self: Display,
-    ) ?DisplayOrientation {
+    ) ?Orientation {
         const ret = c.SDL_GetNaturalDisplayOrientation(
             self.value,
         );
-        return DisplayOrientation.fromSdl(ret);
+        return Orientation.fromSdl(ret);
     }
 
     /// Return the primary display.
@@ -405,102 +511,6 @@ pub const Display = packed struct {
     pub fn getPrimaryDisplay() !Display {
         const ret = c.SDL_GetPrimaryDisplay();
         return Display{ .value = try errors.wrapCall(c.SDL_DisplayID, ret, 0) };
-    }
-};
-
-/// The structure that defines a display mode.
-///
-/// ## Version
-/// This struct is available since SDL 3.2.0.
-pub const DisplayMode = struct {
-    /// The display this mode is associated with.
-    display: ?Display,
-    /// Pixel format.
-    format: ?pixels.Format,
-    /// Width.
-    width: usize,
-    /// Height.
-    height: usize,
-    /// Scale converting size to pixels (e.g. a 1920x1080 mode with 2.0 scale would have 3840x2160 pixels).
-    pixel_density: f32,
-    /// Refresh rate (or `null` for unspecified).
-    refresh_rate: ?f32,
-    /// Precise refresh rate numerator (or 0 for unspecified).
-    refresh_rate_numerator: u32,
-    /// Precise refresh rate denominator.
-    refresh_rate_denominator: u32,
-    /// Private.
-    internal: DisplayModeData,
-
-    /// Convert from SDL.
-    pub fn fromSdl(mode: c.SDL_DisplayMode) DisplayMode {
-        return .{
-            .display = if (mode.displayID == 0) null else .{ .value = mode.displayID },
-            .format = pixels.Format.fromSdl(mode.format),
-            .width = @intCast(mode.w),
-            .height = @intCast(mode.h),
-            .pixel_density = mode.pixel_density,
-            .refresh_rate = if (mode.refresh_rate == 0) null else mode.refresh_rate,
-            .refresh_rate_numerator = @intCast(mode.refresh_rate_numerator),
-            .refresh_rate_denominator = @intCast(mode.refresh_rate_denominator),
-            .internal = mode.internal,
-        };
-    }
-
-    /// Convert to SDL.
-    pub fn toSdl(self: DisplayMode) c.SDL_DisplayMode {
-        return .{
-            .displayID = if (self.display) |val| val.value else 0,
-            .format = pixels.Format.toSdl(self.format),
-            .w = @intCast(self.width),
-            .h = @intCast(self.height),
-            .pixel_density = self.pixel_density,
-            .refresh_rate = if (self.refresh_rate) |val| val else 0,
-            .refresh_rate_numerator = @intCast(self.refresh_rate_numerator),
-            .refresh_rate_denominator = @intCast(self.refresh_rate_denominator),
-            .internal = self.internal,
-        };
-    }
-};
-
-/// Internal display mode data.
-///
-/// ## Remarks
-/// This lives as a field in `video.DisplayMode`, as opaque data.
-///
-/// ## Version
-/// This struct is available since SDL 3.2.0.
-pub const DisplayModeData = ?*c.SDL_DisplayModeData;
-
-/// Display orientation values; the way a display is rotated.
-///
-/// ## Version
-/// This enum is available since SDL 3.2.0.
-pub const DisplayOrientation = enum(c_uint) {
-    /// The display is in landscape mode, with the right side up, relative to portrait mode.
-    landscape = c.SDL_ORIENTATION_LANDSCAPE,
-    /// The display is in landscape mode, with the left side up, relative to portrait mode.
-    landscape_flipped = c.SDL_ORIENTATION_LANDSCAPE_FLIPPED,
-    /// The display is in portrait mode.
-    portrait = c.SDL_ORIENTATION_PORTRAIT,
-    /// The display is in portrait mode, upside down.
-    portrait_flipped = c.SDL_ORIENTATION_PORTRAIT_FLIPPED,
-
-    /// Convert from SDL.
-    pub fn fromSdl(val: c.SDL_DisplayOrientation) ?DisplayOrientation {
-        return switch (val) {
-            c.SDL_ORIENTATION_LANDSCAPE => .landscape,
-            c.SDL_ORIENTATION_LANDSCAPE_FLIPPED => .landscape_flipped,
-            c.SDL_ORIENTATION_PORTRAIT => .portrait,
-            c.SDL_ORIENTATION_PORTRAIT_FLIPPED => .portrait_flipped,
-            else => null,
-        };
-    }
-
-    /// Convert to an SDL value.
-    pub fn toSdl(self: ?DisplayOrientation) c.SDL_DisplayOrientation {
-        const val = self orelse return c.SDL_ORIENTATION_UNKNOWN;
-        return @intFromEnum(val);
     }
 };
 
@@ -529,13 +539,15 @@ pub const egl = struct {
     /// The callback should return a pointer to an EGL attribute array terminated with `EGL_NONE`.
     /// If this function returns `null`, the `video.createWindow()` process will fail gracefully.
     ///
-    /// The returned pointer should be allocated with `malloc()` and will be passed to `free()`.
+    /// The returned pointer should be allocated with `allocator` and will be passed to `free()`.
     ///
     /// The arrays returned by each callback will be appended to the existing attribute arrays defined by SDL.
     ///
     /// ## Version
     /// This datatype is available since SDL 3.2.0.
-    pub const EglAttribArrayCallback = *const fn (user_data: ?*anyopaque) callconv(.c) [*c]EglAttrib;
+    pub fn EglAttribArrayCallback(comptime UserData: type) type {
+        return *const fn (user_data: ?*UserData) [*]EglAttrib;
+    }
 
     /// Opaque type for an EGL config.
     ///
@@ -579,7 +591,9 @@ pub const egl = struct {
     ///
     /// ## Version
     /// This datatype is available since SDL 3.2.0.
-    pub const EglIntArrayCallback = *const fn (user_data: ?*anyopaque, display: c.SDL_EGLDisplay, config: c.SDL_EGLConfig) callconv(.c) [*c]EglInt;
+    pub fn EglIntArrayCallback(comptime UserData: type) type {
+        return *const fn (user_data: ?*UserData, display: EglDisplay, config: EglConfig) [*]EglInt;
+    }
 
     /// Opaque type for an EGL surface.
     ///
@@ -599,7 +613,7 @@ pub const egl = struct {
     /// This function is available since SDL 3.2.0.
     pub fn getCurrentConfig() !EglConfig {
         const ret = c.SDL_EGL_GetCurrentConfig();
-        return errors.wrapNull(EglConfig, ret);
+        return errors.wrapCallNull(EglConfig, ret);
     }
 
     /// Get the currently active EGL display.
@@ -614,7 +628,7 @@ pub const egl = struct {
     /// This function is available since SDL 3.2.0.
     pub fn getCurrentDisplay() !EglDisplay {
         const ret = c.SDL_EGL_GetCurrentDisplay();
-        return errors.wrapNull(EglDisplay, ret);
+        return errors.wrapCallNull(EglDisplay, ret);
     }
 
     /// Get an EGL library function by name.
@@ -639,7 +653,7 @@ pub const egl = struct {
         proc: [:0]const u8,
     ) !*const anyopaque {
         const ret = c.SDL_EGL_GetProcAddress(proc.ptr);
-        return errors.wrapNull(*const anyopaque, @ptrCast(ret));
+        return errors.wrapCallNull(*const anyopaque, @ptrCast(ret));
     }
 
     /// Get the EGL surface associated with the window.
@@ -659,12 +673,13 @@ pub const egl = struct {
         window: Window,
     ) !EglSurface {
         const ret = c.SDL_EGL_GetWindowSurface(window.value);
-        return errors.wrapNull(EglSurface, ret);
+        return errors.wrapCallNull(EglSurface, ret);
     }
 
     /// Sets the callbacks for defining custom `EGLAttrib` arrays for EGL initialization.
     ///
     /// ## Function Parameters
+    /// * `UserData`: Type of user data.
     /// * `platform_attrib_callback`: Callback for attributes to pass to `eglGetPlatformDisplay()`. May be `null`.
     /// * `surface_attrib_callback`: Callback for attributes to pass to `eglCreateSurface()`. May be `null`.
     /// * `context_attrib_callback`: Callback for attributes to pass to `eglCreateContext()`. May be `null`.
@@ -681,15 +696,27 @@ pub const egl = struct {
     /// ## Version
     /// This function is available since SDL 3.2.0.
     pub fn setAttributeCallbacks(
-        platform_attrib_callback: ?EglAttribArrayCallback,
-        surface_attrib_callback: ?EglIntArrayCallback,
-        context_attrib_callback: ?EglIntArrayCallback,
-        user_data: ?*anyopaque,
+        comptime UserData: type,
+        comptime platform_attrib_callback: ?EglAttribArrayCallback(UserData),
+        comptime surface_attrib_callback: ?EglIntArrayCallback(UserData),
+        comptime context_attrib_callback: ?EglIntArrayCallback(UserData),
+        user_data: ?*UserData,
     ) void {
+        const Cb = struct {
+            pub fn platform_attrib(user_data_c: ?*anyopaque) callconv(.c) [*c]EglAttrib {
+                return platform_attrib_callback.?(@alignCast(@ptrCast(user_data_c)));
+            }
+            pub fn surface_attrib(user_data_c: ?*anyopaque, display_c: c.SDL_EGLDisplay, config_c: c.SDL_EGLConfig) callconv(.c) [*c]EglInt {
+                return surface_attrib_callback.?(@alignCast(@ptrCast(user_data_c)), display_c, config_c);
+            }
+            pub fn context_attrib(user_data_c: ?*anyopaque, display_c: c.SDL_EGLDisplay, config_c: c.SDL_EGLConfig) callconv(.c) [*c]EglInt {
+                return surface_attrib_callback.?(@alignCast(@ptrCast(user_data_c)), display_c, config_c);
+            }
+        };
         c.SDL_EGL_SetAttributeCallbacks(
-            platform_attrib_callback,
-            surface_attrib_callback,
-            context_attrib_callback,
+            if (platform_attrib_callback != null) Cb.platform_attrib else null,
+            if (surface_attrib_callback != null) Cb.surface_attrib else null,
+            if (context_attrib_callback != null) Cb.context_attrib else null,
             user_data,
         );
     }
@@ -712,7 +739,7 @@ pub const gl = struct {
     ///
     /// ## Version
     /// This enum is available since SDL 3.2.0.
-    pub const Attribute = enum(c_uint) {
+    pub const Attribute = enum(c.SDL_GLAttr) {
         /// The minimum number of bits for the red channel of the color buffer; defaults to 8.
         red_size = c.SDL_GL_RED_SIZE,
         /// The minimum number of bits for the green channel of the color buffer; defaults to 8.
@@ -772,7 +799,7 @@ pub const gl = struct {
     ///
     /// ## Version
     /// This datatype is available since SDL 3.2.0.
-    pub const Profile = enum(u32) {
+    pub const Profile = enum(c.SDL_GLProfile) {
         /// OpenGL core profile - deprecated functions are disabled.
         core = @intCast(c.SDL_GL_CONTEXT_PROFILE_CORE),
         /// OpenGL compatibility profile - deprecated functions are allowed.
@@ -825,7 +852,7 @@ pub const gl = struct {
             window: Window,
         ) !gl.Context {
             const ret = c.SDL_GL_CreateContext(window.value);
-            return .{ .value = try errors.wrapNull(*c.SDL_GLContextState, ret) };
+            return .{ .value = try errors.wrapCallNull(*c.SDL_GLContextState, ret) };
         }
 
         /// Delete an OpenGL context.
@@ -871,7 +898,7 @@ pub const gl = struct {
     ///
     /// ## Version
     /// This datatype is available since SDL 3.2.0.
-    pub const ContextFlag = enum(u32) {
+    pub const ContextFlag = enum(c.SDL_GLContextFlag) {
         debug = @intCast(c.SDL_GL_CONTEXT_DEBUG_FLAG),
         forward_compatible = @intCast(c.SDL_GL_CONTEXT_FORWARD_COMPATIBLE_FLAG),
         robust_access = @intCast(c.SDL_GL_CONTEXT_ROBUST_ACCESS_FLAG),
@@ -882,7 +909,7 @@ pub const gl = struct {
     ///
     /// ## Version
     /// This datatype is available since SDL 3.2.0.
-    pub const ContextReleaseFlag = enum(u32) {
+    pub const ContextReleaseFlag = enum(c.SDL_GLContextReleaseFlag) {
         none = @intCast(c.SDL_GL_CONTEXT_RELEASE_BEHAVIOR_NONE),
         flush = @intCast(c.SDL_GL_CONTEXT_RELEASE_BEHAVIOR_FLUSH),
     };
@@ -891,7 +918,7 @@ pub const gl = struct {
     ///
     /// ## Version
     /// This datatype is available since SDL 3.2.0.
-    pub const ContextResetNotification = enum(u32) {
+    pub const ContextResetNotification = enum(c.SDL_GLContextResetNotification) {
         no_notification = @intCast(c.SDL_GL_CONTEXT_RESET_NO_NOTIFICATION),
         lose_context = @intCast(c.SDL_GL_CONTEXT_RESET_LOSE_CONTEXT),
     };
@@ -959,7 +986,7 @@ pub const gl = struct {
     /// This function is available since SDL 3.2.0.
     pub fn getCurrentContext() !gl.Context {
         const ret = c.SDL_GL_GetCurrentContext();
-        return .{ .value = try errors.wrapNull(*c.SDL_GLContextState, ret) };
+        return .{ .value = try errors.wrapCallNull(*c.SDL_GLContextState, ret) };
     }
 
     /// Get the currently active OpenGL window.
@@ -974,7 +1001,7 @@ pub const gl = struct {
     /// This function is available since SDL 3.2.0.
     pub fn getCurrentWindow() !Window {
         const ret = c.SDL_GL_GetCurrentWindow();
-        return Window{ .value = try errors.wrapNull(*c.SDL_Window, ret) };
+        return Window{ .value = try errors.wrapCallNull(*c.SDL_Window, ret) };
     }
 
     /// Get an OpenGL function by name.
@@ -1154,7 +1181,7 @@ pub const gl = struct {
 ///
 /// ## Version
 /// This enum is available since SDL 3.2.0.
-pub const HitTestResult = enum(c_uint) {
+pub const HitTestResult = enum(c.SDL_HitTestResult) {
     /// Region is normal. No special properties.
     normal = c.SDL_HITTEST_NORMAL,
     /// Region can drag entire window.
@@ -1181,7 +1208,7 @@ pub const HitTestResult = enum(c_uint) {
 ///
 /// ## Version
 /// This enum is available since SDL 3.2.0.
-pub const FlashOperation = enum(c_uint) {
+pub const FlashOperation = enum(c.SDL_FlashOperation) {
     /// Cancel any window flash state.
     cancel = c.SDL_FLASH_CANCEL,
     /// Flash the window briefly to get attention
@@ -1236,7 +1263,7 @@ pub const VSync = union(enum) {
 ///
 /// ## Version
 /// This datatype is available since SDL 3.2.0.
-pub const WindowID = c.SDL_WindowID;
+pub const WindowId = c.SDL_WindowID;
 
 /// The struct used as an opaque handle to a window.
 ///
@@ -1317,7 +1344,7 @@ pub const Window = packed struct {
         wayland_surface_role_custom: ?bool = null,
         /// Wayland only.
         /// True if the application wants an associated `wl_egl_window object` to be created and attached to the window,
-        /// even if the window does not have the OpenGL property or `video.WindowFlags.open_gl` flag set.
+        /// even if the window does not have the OpenGL property or `video.Window.Flags.open_gl` flag set.
         wayland_create_egl_window: ?bool = null,
         /// Wayland only.
         /// The `wl_surface` associated with the window, if you want to wrap an existing window.
@@ -1407,6 +1434,131 @@ pub const Window = packed struct {
             if (self.x11_window) |val|
                 try ret.set(c.SDL_PROP_WINDOW_CREATE_X11_WINDOW_NUMBER, .{ .number = @intCast(val) });
             return ret;
+        }
+    };
+
+    /// The flags on a window.
+    ///
+    /// ## Remarks
+    /// These cover a lot of true/false, or on/off, window state.
+    /// Some of it is immutable after being set through `video.Window.init()`,
+    /// some of it can be changed on existing windows by the app,
+    /// and some of it might be altered by the user or system outside of the app's control.
+    ///
+    /// ## Version
+    /// This datatype is available since SDL 3.2.0.
+    pub const Flags = struct {
+        /// Window is in fullscreen mode.
+        fullscreen: bool = false,
+        /// Window usable with OpenGL context.
+        open_gl: bool = false,
+        /// Window is occluded.
+        occluded: bool = false,
+        /// Window is neither mapped onto the desktop nor shown in the taskbar/dock/window list.
+        /// The `video.Window.show()` function must be called for the window.
+        hidden: bool = false,
+        /// No window decoration.
+        borderless: bool = false,
+        /// Window can be resized.
+        resizable: bool = false,
+        /// Window is minimized.
+        minimized: bool = false,
+        /// Window is maximized.
+        maximized: bool = false,
+        /// Window has grabbed mouse input.
+        mouse_grabbed: bool = false,
+        /// Window has input focus.
+        input_focus: bool = false,
+        /// Window has mouse focus.
+        mouse_focus: bool = false,
+        /// Window not created by SDL.
+        external: bool = false,
+        /// Window is modal.
+        modal: bool = false,
+        /// Window uses high pixel density back buffer if possible.
+        high_pixel_density: bool = false,
+        /// Window has mouse captured (unrelated to `video.Window.Flags.mouse_grabbed`)
+        mouse_capture: bool = false,
+        /// Window has relative mode enabled.
+        mouse_relative_mode: bool = false,
+        /// Window should always be above others.
+        always_on_top: bool = false,
+        /// Window should be treated as a utility window, not showing in the task bar and window list.
+        utility: bool = false,
+        /// Window should be treated as a tooltip and does not get mouse or keyboard focus, requires a parent window.
+        tooltip: bool = false,
+        /// Window should be treated as a popup menu, requires a parent window.
+        popup_menu: bool = false,
+        /// Window has grabbed keyboard input.
+        keyboard_grabbed: bool = false,
+        /// Window usable for Vulkan surface.
+        vulkan: bool = false,
+        /// Window usable for Metal view.
+        metal: bool = false,
+        /// Window with transparent buffer.
+        transparent: bool = false,
+        /// Window should not be focusable.
+        not_focusable: bool = false,
+
+        /// Convert from an SDL value.
+        pub fn fromSdl(flags: c.SDL_WindowFlags) Flags {
+            return .{
+                .fullscreen = (flags & c.SDL_WINDOW_FULLSCREEN) != 0,
+                .open_gl = (flags & c.SDL_WINDOW_OPENGL) != 0,
+                .occluded = (flags & c.SDL_WINDOW_OCCLUDED) != 0,
+                .hidden = (flags & c.SDL_WINDOW_HIDDEN) != 0,
+                .borderless = (flags & c.SDL_WINDOW_BORDERLESS) != 0,
+                .resizable = (flags & c.SDL_WINDOW_RESIZABLE) != 0,
+                .minimized = (flags & c.SDL_WINDOW_MINIMIZED) != 0,
+                .maximized = (flags & c.SDL_WINDOW_MAXIMIZED) != 0,
+                .mouse_grabbed = (flags & c.SDL_WINDOW_MOUSE_GRABBED) != 0,
+                .input_focus = (flags & c.SDL_WINDOW_INPUT_FOCUS) != 0,
+                .mouse_focus = (flags & c.SDL_WINDOW_MOUSE_FOCUS) != 0,
+                .external = (flags & c.SDL_WINDOW_EXTERNAL) != 0,
+                .modal = (flags & c.SDL_WINDOW_MODAL) != 0,
+                .high_pixel_density = (flags & c.SDL_WINDOW_HIGH_PIXEL_DENSITY) != 0,
+                .mouse_capture = (flags & c.SDL_WINDOW_MOUSE_CAPTURE) != 0,
+                .mouse_relative_mode = (flags & c.SDL_WINDOW_MOUSE_RELATIVE_MODE) != 0,
+                .always_on_top = (flags & c.SDL_WINDOW_ALWAYS_ON_TOP) != 0,
+                .utility = (flags & c.SDL_WINDOW_UTILITY) != 0,
+                .tooltip = (flags & c.SDL_WINDOW_TOOLTIP) != 0,
+                .popup_menu = (flags & c.SDL_WINDOW_POPUP_MENU) != 0,
+                .keyboard_grabbed = (flags & c.SDL_WINDOW_KEYBOARD_GRABBED) != 0,
+                .vulkan = (flags & c.SDL_WINDOW_VULKAN) != 0,
+                .metal = (flags & c.SDL_WINDOW_METAL) != 0,
+                .transparent = (flags & c.SDL_WINDOW_TRANSPARENT) != 0,
+                .not_focusable = (flags & c.SDL_WINDOW_NOT_FOCUSABLE) != 0,
+            };
+        }
+
+        /// Convert to an SDL value.
+        pub fn toSdl(self: Flags) c.SDL_WindowFlags {
+            return (if (self.fullscreen) @as(c.SDL_WindowFlags, c.SDL_WINDOW_FULLSCREEN) else 0) |
+                (if (self.open_gl) @as(c.SDL_WindowFlags, c.SDL_WINDOW_OPENGL) else 0) |
+                (if (self.occluded) @as(c.SDL_WindowFlags, c.SDL_WINDOW_OCCLUDED) else 0) |
+                (if (self.hidden) @as(c.SDL_WindowFlags, c.SDL_WINDOW_HIDDEN) else 0) |
+                (if (self.borderless) @as(c.SDL_WindowFlags, c.SDL_WINDOW_BORDERLESS) else 0) |
+                (if (self.resizable) @as(c.SDL_WindowFlags, c.SDL_WINDOW_RESIZABLE) else 0) |
+                (if (self.minimized) @as(c.SDL_WindowFlags, c.SDL_WINDOW_MINIMIZED) else 0) |
+                (if (self.maximized) @as(c.SDL_WindowFlags, c.SDL_WINDOW_MAXIMIZED) else 0) |
+                (if (self.mouse_grabbed) @as(c.SDL_WindowFlags, c.SDL_WINDOW_MOUSE_GRABBED) else 0) |
+                (if (self.input_focus) @as(c.SDL_WindowFlags, c.SDL_WINDOW_INPUT_FOCUS) else 0) |
+                (if (self.mouse_focus) @as(c.SDL_WindowFlags, c.SDL_WINDOW_MOUSE_FOCUS) else 0) |
+                (if (self.external) @as(c.SDL_WindowFlags, c.SDL_WINDOW_EXTERNAL) else 0) |
+                (if (self.modal) @as(c.SDL_WindowFlags, c.SDL_WINDOW_MODAL) else 0) |
+                (if (self.high_pixel_density) @as(c.SDL_WindowFlags, c.SDL_WINDOW_HIGH_PIXEL_DENSITY) else 0) |
+                (if (self.mouse_capture) @as(c.SDL_WindowFlags, c.SDL_WINDOW_MOUSE_CAPTURE) else 0) |
+                (if (self.mouse_relative_mode) @as(c.SDL_WindowFlags, c.SDL_WINDOW_MOUSE_RELATIVE_MODE) else 0) |
+                (if (self.always_on_top) @as(c.SDL_WindowFlags, c.SDL_WINDOW_ALWAYS_ON_TOP) else 0) |
+                (if (self.utility) @as(c.SDL_WindowFlags, c.SDL_WINDOW_UTILITY) else 0) |
+                (if (self.tooltip) @as(c.SDL_WindowFlags, c.SDL_WINDOW_TOOLTIP) else 0) |
+                (if (self.popup_menu) @as(c.SDL_WindowFlags, c.SDL_WINDOW_POPUP_MENU) else 0) |
+                (if (self.keyboard_grabbed) @as(c.SDL_WindowFlags, c.SDL_WINDOW_KEYBOARD_GRABBED) else 0) |
+                (if (self.vulkan) @as(c.SDL_WindowFlags, c.SDL_WINDOW_VULKAN) else 0) |
+                (if (self.metal) @as(c.SDL_WindowFlags, c.SDL_WINDOW_METAL) else 0) |
+                (if (self.transparent) @as(c.SDL_WindowFlags, c.SDL_WINDOW_TRANSPARENT) else 0) |
+                (if (self.not_focusable) @as(c.SDL_WindowFlags, c.SDL_WINDOW_NOT_FOCUSABLE) else 0) |
+                0;
         }
     };
 
@@ -1610,7 +1762,7 @@ pub const Window = packed struct {
         offset_y: isize,
         width: usize,
         height: usize,
-        flags: WindowFlags,
+        flags: Flags,
     ) !Window {
         const ret = c.SDL_CreatePopupWindow(
             self.value,
@@ -1620,7 +1772,7 @@ pub const Window = packed struct {
             @intCast(height),
             flags.toSdl(),
         );
-        return .{ .value = try errors.wrapNull(*c.SDL_Window, ret) };
+        return .{ .value = try errors.wrapCallNull(*c.SDL_Window, ret) };
     }
 
     /// Create a window with the specified dimensions and flags.
@@ -1635,7 +1787,7 @@ pub const Window = packed struct {
     /// Returns the window that was created.
     ///
     /// ## Remarks
-    /// The window is implicitly shown if `video.Window.WindowFlags.hidden` is not set.
+    /// The window is implicitly shown if `video.Window.Flags.hidden` is not set.
     ///
     /// On Apple's macOS, you must set the `NSHighResolutionCapable` `Info.plist` property to `YES`,
     /// otherwise you will not receive a High-DPI OpenGL canvas.
@@ -1646,14 +1798,14 @@ pub const Window = packed struct {
     /// Note that the drawable size can vary after the window is created and should be queried again
     /// if you get a `event.Window.pixel_size_changed` event.
     ///
-    /// If the window is created with any of the `video.Window.WindowFlags.open_gl` or `video.Window.WindowFlags.vulkan` flags,
+    /// If the window is created with any of the `video.Window.Flags.open_gl` or `video.Window.Flags.vulkan` flags,
     /// then the corresponding LoadLibrary function (`video.gl_load_library()` or `video.vulkan_load_library()`) is called
     /// and the corresponding UnloadLibrary function is called by `video.Window.deinit()`.
     ///
-    /// If `video.Window.WindowFlags.vulkan` is specified and there isn't a working Vulkan driver, `video.Window.init()` will fail,
+    /// If `video.Window.Flags.vulkan` is specified and there isn't a working Vulkan driver, `video.Window.init()` will fail,
     /// because `video.vulkan_load_library()` will fail.
     ///
-    /// If `video.Window.WindowFlags.metal` is specified on an OS that does not support Metal, `video.Window.init()` will fail.
+    /// If `video.Window.Flags.metal` is specified on an OS that does not support Metal, `video.Window.init()` will fail.
     ///
     /// If you intend to use this window with a `renderer.Renderer`,
     /// you should use `renderer.Render.initWithWindow()` instead of this function, to avoid window flicker.
@@ -1704,7 +1856,7 @@ pub const Window = packed struct {
         title: [:0]const u8,
         width: usize,
         height: usize,
-        flags: WindowFlags,
+        flags: Flags,
     ) !Window {
         const ret = c.SDL_CreateWindow(
             title,
@@ -1712,7 +1864,7 @@ pub const Window = packed struct {
             @intCast(height),
             flags.toSdl(),
         );
-        return .{ .value = try errors.wrapNull(*c.SDL_Window, ret) };
+        return .{ .value = try errors.wrapCallNull(*c.SDL_Window, ret) };
     }
 
     /// Create a window with the specified properties.
@@ -1748,7 +1900,7 @@ pub const Window = packed struct {
         const group = try props.toProperties();
         errdefer group.deinit();
 
-        const window = try errors.wrapNull(*c.SDL_Window, c.SDL_CreateWindowWithProperties(group.value));
+        const window = try errors.wrapCallNull(*c.SDL_Window, c.SDL_CreateWindowWithProperties(group.value));
         return .{ .window = .{ .value = window }, .properties = group };
     }
 
@@ -1955,8 +2107,8 @@ pub const Window = packed struct {
     /// This function is available since SDL 3.2.0.
     pub fn getFlags(
         self: Window,
-    ) WindowFlags {
-        return WindowFlags.fromSdl(c.SDL_GetWindowFlags(self.value));
+    ) Flags {
+        return Flags.fromSdl(c.SDL_GetWindowFlags(self.value));
     }
 
     /// Get a window from a stored ID.
@@ -1975,11 +2127,11 @@ pub const Window = packed struct {
     ///
     /// ## Version
     /// This function is available since SDL 3.2.0.
-    pub fn fromID(
-        id: WindowID,
+    pub fn fromId(
+        id: WindowId,
     ) !Window {
         const ret = c.SDL_GetWindowFromID(id);
-        return .{ .value = try errors.wrapNull(*c.SDL_Window, ret) };
+        return .{ .value = try errors.wrapCallNull(*c.SDL_Window, ret) };
     }
 
     /// Query the display mode to use when a window is visible at fullscreen.
@@ -1997,10 +2149,10 @@ pub const Window = packed struct {
     /// This function is available since SDL 3.2.0.
     pub fn getFullscreenMode(
         self: Window,
-    ) ?DisplayMode {
+    ) ?Display.Mode {
         const ret = c.SDL_GetWindowFullscreenMode(self.value);
         if (ret) |val| {
-            return DisplayMode.fromSdl(val.*);
+            return Display.Mode.fromSdl(val.*);
         }
         return null;
     }
@@ -2023,7 +2175,7 @@ pub const Window = packed struct {
         self: Window,
     ) ![]u8 {
         var size: usize = undefined;
-        const ret = @as([*]u8, @alignCast(@ptrCast(try errors.wrapNull(*anyopaque, c.SDL_GetWindowICCProfile(self.value, &size)))));
+        const ret = @as([*]u8, @alignCast(@ptrCast(try errors.wrapCallNull(*anyopaque, c.SDL_GetWindowICCProfile(self.value, &size)))));
         return ret[0..size];
     }
 
@@ -2045,9 +2197,9 @@ pub const Window = packed struct {
     /// This function is available since SDL 3.2.0.
     pub fn getId(
         self: Window,
-    ) !WindowID {
+    ) !WindowId {
         const ret = c.SDL_GetWindowID(self.value);
-        return errors.wrapCall(WindowID, ret, 0);
+        return errors.wrapCall(WindowId, ret, 0);
     }
 
     /// Get a window's keyboard grab mode.
@@ -2235,7 +2387,7 @@ pub const Window = packed struct {
         self: Window,
     ) !pixels.Format {
         const ret = c.SDL_GetWindowPixelFormat(self.value);
-        return .{ .value = try errors.wrapCall(c_uint, ret, 0) };
+        return @enumFromInt(try errors.wrapCall(c_uint, ret, 0));
     }
 
     /// Get the position of a window.
@@ -2390,7 +2542,7 @@ pub const Window = packed struct {
         self: Window,
     ) !surface.Surface {
         const ret = c.SDL_GetWindowSurface(self.value);
-        return surface.Surface{ .value = try errors.wrapNull(*c.SDL_Surface, ret) };
+        return surface.Surface{ .value = try errors.wrapCallNull(*c.SDL_Surface, ret) };
     }
 
     /// Get VSync for the window surface.
@@ -2459,7 +2611,7 @@ pub const Window = packed struct {
     /// * `self`: The window to maximize.
     ///
     /// ## Remarks
-    /// Non-resizable windows can't be maximized. The window must have the `video.WindowFlags.resizable` flag set, or this will have no effect.
+    /// Non-resizable windows can't be maximized. The window must have the `video.Window.Flags.resizable` flag set, or this will have no effect.
     ///
     /// On some windowing systems this request is asynchronous and the new window state may not have have been applied immediately upon the return of this function.
     /// If an immediate change is required, call `video.Window.sync()` to block until the changes have taken effect.
@@ -2518,7 +2670,7 @@ pub const Window = packed struct {
     /// The result of this request is subject to desktop window manager policy,
     /// particularly if raising the requested window would result in stealing focus from another application.
     /// If the window is successfully raised and gains input focus, an `events.Type.window_focus_gained` event will be emitted,
-    /// and the window will have the `video.WindowFlags.input_focus` flag set.
+    /// and the window will have the `video.Window.Flags.input_focus` flag set.
     ///
     /// ## Thread Safety
     /// This function should only be called on the main thread.
@@ -2566,7 +2718,7 @@ pub const Window = packed struct {
     /// * `on_top`: True to set the window always on top, false to disable.
     ///
     /// ## Remarks
-    /// This will add or remove the window's `video.WindowFlags.always_on_top` flag.
+    /// This will add or remove the window's `video.Window.Flags.always_on_top` flag.
     /// This will bring the window to the front and keep the window above the rest.
     ///
     /// ## Thread Safety
@@ -2625,7 +2777,7 @@ pub const Window = packed struct {
     /// * `bordered`: False to remove border, true to add border.
     ///
     /// ## Remarks
-    /// This will add or remove the window's `video.WindowFlags.borderless` flag and add or remove the border from the actual window.
+    /// This will add or remove the window's `video.Window.Flags.borderless` flag and add or remove the border from the actual window.
     /// This is a no-op if the window's border already matches the requested state.
     ///
     /// You can't change the border state of a fullscreen window.
@@ -2713,7 +2865,7 @@ pub const Window = packed struct {
     /// This function is available since SDL 3.2.0.
     pub fn setFullscreenMode(
         self: Window,
-        mode: ?DisplayMode,
+        mode: ?Display.Mode,
     ) !void {
         const mode_sdl = if (mode) |val| val.toSdl() else undefined;
         const ret = c.SDL_SetWindowFullscreenMode(self.value, if (mode != null) &mode_sdl else null);
@@ -2755,10 +2907,16 @@ pub const Window = packed struct {
     /// This function is available since SDL 3.2.0.
     pub fn setHitTest(
         self: Window,
-        callback: ?HitTest,
+        comptime UserData: type,
+        comptime callback: ?HitTest(UserData),
         user_data: ?*anyopaque,
     ) !void {
-        return errors.wrapCallBool(c.SDL_SetWindowHitTest(self.value, if (callback) |val| val else null, user_data));
+        const Cb = struct {
+            pub fn run(win_c: ?*c.SDL_Window, area_c: [*c]const c.SDL_Point, user_data_c: ?*anyopaque) callconv(.c) c.SDL_HitTestResult {
+                return @intFromEnum(callback.?(.{ .value = win_c.? }, rect.IPoint.fromSdl(area_c), @alignCast(@ptrCast(user_data_c))));
+            }
+        };
+        return errors.wrapCallBool(c.SDL_SetWindowHitTest(self.value, if (callback != null) Cb.run else null, user_data));
     }
 
     /// Set the icon for a window.
@@ -3035,7 +3193,7 @@ pub const Window = packed struct {
     /// * `resizable`: True to allow resizing, false to disallow.
     ///
     /// ## Remarks
-    /// This will add or remove the window's `video.WindowFlags.resizable` flag and allow/disallow user resizing of the window.
+    /// This will add or remove the window's `video.Window.Flags.resizable` flag and allow/disallow user resizing of the window.
     /// This is a no-op if the window's resizable state already matches the requested state.
     ///
     /// You can't change the resizable state of a fullscreen window.
@@ -3068,7 +3226,7 @@ pub const Window = packed struct {
     /// If your shape surface changes, you should call `video.Window.setShape()` again to update the window.
     /// This is an expensive operation, so should be done sparingly.
     ///
-    /// The window must have been created with the `video.WindowFlags.transparent` flag.
+    /// The window must have been created with the `video.Window.Flags.transparent` flag.
     ///
     /// ## Thread Safety
     /// This function should only be called on the main thread.
@@ -3306,131 +3464,6 @@ pub const Window = packed struct {
         self: Window,
     ) bool {
         return c.SDL_WindowHasSurface(self.value);
-    }
-};
-
-/// The flags on a window.
-///
-/// ## Remarks
-/// These cover a lot of true/false, or on/off, window state.
-/// Some of it is immutable after being set through `video.Window.init()`,
-/// some of it can be changed on existing windows by the app,
-/// and some of it might be altered by the user or system outside of the app's control.
-///
-/// ## Version
-/// This datatype is available since SDL 3.2.0.
-pub const WindowFlags = struct {
-    /// Window is in fullscreen mode.
-    fullscreen: bool = false,
-    /// Window usable with OpenGL context.
-    open_gl: bool = false,
-    /// Window is occluded.
-    occluded: bool = false,
-    /// Window is neither mapped onto the desktop nor shown in the taskbar/dock/window list.
-    /// The `video.Window.show()` function must be called for the window.
-    hidden: bool = false,
-    /// No window decoration.
-    borderless: bool = false,
-    /// Window can be resized.
-    resizable: bool = false,
-    /// Window is minimized.
-    minimized: bool = false,
-    /// Window is maximized.
-    maximized: bool = false,
-    /// Window has grabbed mouse input.
-    mouse_grabbed: bool = false,
-    /// Window has input focus.
-    input_focus: bool = false,
-    /// Window has mouse focus.
-    mouse_focus: bool = false,
-    /// Window not created by SDL.
-    external: bool = false,
-    /// Window is modal.
-    modal: bool = false,
-    /// Window uses high pixel density back buffer if possible.
-    high_pixel_density: bool = false,
-    /// Window has mouse captured (unrelated to `video.WindowFlags.mouse_grabbed`)
-    mouse_capture: bool = false,
-    /// Window has relative mode enabled.
-    mouse_relative_mode: bool = false,
-    /// Window should always be above others.
-    always_on_top: bool = false,
-    /// Window should be treated as a utility window, not showing in the task bar and window list.
-    utility: bool = false,
-    /// Window should be treated as a tooltip and does not get mouse or keyboard focus, requires a parent window.
-    tooltip: bool = false,
-    /// Window should be treated as a popup menu, requires a parent window.
-    popup_menu: bool = false,
-    /// Window has grabbed keyboard input.
-    keyboard_grabbed: bool = false,
-    /// Window usable for Vulkan surface.
-    vulkan: bool = false,
-    /// Window usable for Metal view.
-    metal: bool = false,
-    /// Window with transparent buffer.
-    transparent: bool = false,
-    /// Window should not be focusable.
-    not_focusable: bool = false,
-
-    /// Convert from an SDL value.
-    pub fn fromSdl(flags: c.SDL_WindowFlags) WindowFlags {
-        return .{
-            .fullscreen = (flags & c.SDL_WINDOW_FULLSCREEN) != 0,
-            .open_gl = (flags & c.SDL_WINDOW_OPENGL) != 0,
-            .occluded = (flags & c.SDL_WINDOW_OCCLUDED) != 0,
-            .hidden = (flags & c.SDL_WINDOW_HIDDEN) != 0,
-            .borderless = (flags & c.SDL_WINDOW_BORDERLESS) != 0,
-            .resizable = (flags & c.SDL_WINDOW_RESIZABLE) != 0,
-            .minimized = (flags & c.SDL_WINDOW_MINIMIZED) != 0,
-            .maximized = (flags & c.SDL_WINDOW_MAXIMIZED) != 0,
-            .mouse_grabbed = (flags & c.SDL_WINDOW_MOUSE_GRABBED) != 0,
-            .input_focus = (flags & c.SDL_WINDOW_INPUT_FOCUS) != 0,
-            .mouse_focus = (flags & c.SDL_WINDOW_MOUSE_FOCUS) != 0,
-            .external = (flags & c.SDL_WINDOW_EXTERNAL) != 0,
-            .modal = (flags & c.SDL_WINDOW_MODAL) != 0,
-            .high_pixel_density = (flags & c.SDL_WINDOW_HIGH_PIXEL_DENSITY) != 0,
-            .mouse_capture = (flags & c.SDL_WINDOW_MOUSE_CAPTURE) != 0,
-            .mouse_relative_mode = (flags & c.SDL_WINDOW_MOUSE_RELATIVE_MODE) != 0,
-            .always_on_top = (flags & c.SDL_WINDOW_ALWAYS_ON_TOP) != 0,
-            .utility = (flags & c.SDL_WINDOW_UTILITY) != 0,
-            .tooltip = (flags & c.SDL_WINDOW_TOOLTIP) != 0,
-            .popup_menu = (flags & c.SDL_WINDOW_POPUP_MENU) != 0,
-            .keyboard_grabbed = (flags & c.SDL_WINDOW_KEYBOARD_GRABBED) != 0,
-            .vulkan = (flags & c.SDL_WINDOW_VULKAN) != 0,
-            .metal = (flags & c.SDL_WINDOW_METAL) != 0,
-            .transparent = (flags & c.SDL_WINDOW_TRANSPARENT) != 0,
-            .not_focusable = (flags & c.SDL_WINDOW_NOT_FOCUSABLE) != 0,
-        };
-    }
-
-    /// Convert to an SDL value.
-    pub fn toSdl(self: WindowFlags) c.SDL_WindowFlags {
-        return (if (self.fullscreen) @as(c.SDL_WindowFlags, c.SDL_WINDOW_FULLSCREEN) else 0) |
-            (if (self.open_gl) @as(c.SDL_WindowFlags, c.SDL_WINDOW_OPENGL) else 0) |
-            (if (self.occluded) @as(c.SDL_WindowFlags, c.SDL_WINDOW_OCCLUDED) else 0) |
-            (if (self.hidden) @as(c.SDL_WindowFlags, c.SDL_WINDOW_HIDDEN) else 0) |
-            (if (self.borderless) @as(c.SDL_WindowFlags, c.SDL_WINDOW_BORDERLESS) else 0) |
-            (if (self.resizable) @as(c.SDL_WindowFlags, c.SDL_WINDOW_RESIZABLE) else 0) |
-            (if (self.minimized) @as(c.SDL_WindowFlags, c.SDL_WINDOW_MINIMIZED) else 0) |
-            (if (self.maximized) @as(c.SDL_WindowFlags, c.SDL_WINDOW_MAXIMIZED) else 0) |
-            (if (self.mouse_grabbed) @as(c.SDL_WindowFlags, c.SDL_WINDOW_MOUSE_GRABBED) else 0) |
-            (if (self.input_focus) @as(c.SDL_WindowFlags, c.SDL_WINDOW_INPUT_FOCUS) else 0) |
-            (if (self.mouse_focus) @as(c.SDL_WindowFlags, c.SDL_WINDOW_MOUSE_FOCUS) else 0) |
-            (if (self.external) @as(c.SDL_WindowFlags, c.SDL_WINDOW_EXTERNAL) else 0) |
-            (if (self.modal) @as(c.SDL_WindowFlags, c.SDL_WINDOW_MODAL) else 0) |
-            (if (self.high_pixel_density) @as(c.SDL_WindowFlags, c.SDL_WINDOW_HIGH_PIXEL_DENSITY) else 0) |
-            (if (self.mouse_capture) @as(c.SDL_WindowFlags, c.SDL_WINDOW_MOUSE_CAPTURE) else 0) |
-            (if (self.mouse_relative_mode) @as(c.SDL_WindowFlags, c.SDL_WINDOW_MOUSE_RELATIVE_MODE) else 0) |
-            (if (self.always_on_top) @as(c.SDL_WindowFlags, c.SDL_WINDOW_ALWAYS_ON_TOP) else 0) |
-            (if (self.utility) @as(c.SDL_WindowFlags, c.SDL_WINDOW_UTILITY) else 0) |
-            (if (self.tooltip) @as(c.SDL_WindowFlags, c.SDL_WINDOW_TOOLTIP) else 0) |
-            (if (self.popup_menu) @as(c.SDL_WindowFlags, c.SDL_WINDOW_POPUP_MENU) else 0) |
-            (if (self.keyboard_grabbed) @as(c.SDL_WindowFlags, c.SDL_WINDOW_KEYBOARD_GRABBED) else 0) |
-            (if (self.vulkan) @as(c.SDL_WindowFlags, c.SDL_WINDOW_VULKAN) else 0) |
-            (if (self.metal) @as(c.SDL_WindowFlags, c.SDL_WINDOW_METAL) else 0) |
-            (if (self.transparent) @as(c.SDL_WindowFlags, c.SDL_WINDOW_TRANSPARENT) else 0) |
-            (if (self.not_focusable) @as(c.SDL_WindowFlags, c.SDL_WINDOW_NOT_FOCUSABLE) else 0) |
-            0;
     }
 };
 

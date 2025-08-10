@@ -26,8 +26,10 @@ pub fn init(example_name: [:0]const u8, window_flags: sdl3.video.WindowFlags) !C
     const window = try sdl3.video.Window.init(example_name, WIDTH, HEIGHT, window_flags);
     errdefer window.deinit();
 
+    sdl3.log.setAllPriorities(.err);
     // Generate swapchain for window.
     try device.claimWindow(window);
+
     return .{
         .device = device,
         .window = window,

@@ -284,6 +284,9 @@ pub const errors = @import("errors.zig");
 /// `events.register()` can guarantee that these events have a type that isn't in use by other parts of the system.
 pub const events = @import("events.zig");
 
+/// Extra utilities provided by zig-sdl3 for convenience.
+pub const extras = @import("extras.zig");
+
 /// SDL offers an API for examining and manipulating the system's filesystem.
 /// This covers most things one would need to do with directories, except for actual file I/O (which is covered by `io_stream` and `async_io` instead).
 ///
@@ -299,7 +302,37 @@ pub const events = @import("events.zig");
 /// SDL also offers functions to manipulate the directory tree: renaming, removing, copying files.
 pub const filesystem = @import("filesystem.zig");
 
-/// TODO!!!
+/// SDL provides a low-level joystick API, which just treats joysticks as an arbitrary pile of buttons, axes, and hat switches.
+/// If you're planning to write your own control configuration screen, this can give you a lot of flexibility, but that's a lot of work,
+/// and most things that we consider "joysticks" now are actually console-style gamepads.
+/// So SDL provides the gamepad API on top of the lower-level joystick functionality.
+///
+/// The difference between a joystick and a gamepad is that a gamepad tells you where a button or axis is on the device.
+/// You don't speak to gamepads in terms of arbitrary numbers like "button 3" or "axis 2" but in standard locations: the d-pad,
+/// the shoulder buttons, triggers, A/B/X/Y (or X/O/Square/Triangle, if you will).
+///
+/// One turns a joystick into a gamepad by providing a magic configuration string,
+/// which tells SDL the details of a specific device: when you see this specific hardware, if button 2 gets pressed, this is actually D-Pad Up, etc.
+///
+/// SDL has many popular controllers configured out of the box, and users can add their own controller details through an environment variable if it's otherwise unknown to SDL.
+///
+/// In order to use these functions, `init()` must have been called with the `InitFlags.gamepad` flag.
+/// This causes SDL to scan the system for gamepads, and load appropriate drivers.
+///
+/// If you would like to receive gamepad updates while the application is in the background,
+/// you should set the following hint before calling `init()`: `hints.Type.joystick_allow_background_events`.
+///
+/// Gamepads support various optional features such as rumble, color LEDs, touchpad, gyro, etc.
+/// The support for these features varies depending on the controller and OS support available.
+/// You can check for LED and rumble capabilities at runtime by calling `gamepad.Gamepad.getProperties()` and checking the various capability properties.
+/// You can check for touchpad by calling `gamepad.Gamepad.getNumTouchpads()` and check for gyro and accelerometer by calling `gamepad.Gamepad.hasSensor()`.
+///
+/// By default SDL will try to use the most capable driver available, but you can tune which OS drivers to use with the various joystick hints in `hints`.
+///
+/// Your application should always support gamepad hotplugging.
+/// On some platforms like Xbox, Steam Deck, etc., this is a requirement for certification.
+/// On other platforms, like macOS and Windows when using `Windows.Gaming.Input`,
+/// controllers may not be available at startup and will come in at some point after you've started processing events.
 pub const gamepad = @import("gamepad.zig");
 
 /// The GPU API offers a cross-platform way for apps to talk to modern graphics hardware.
@@ -311,7 +344,7 @@ pub const gpu = @import("gpu.zig");
 /// A GUID is a 128-bit value that represents something that is uniquely identifiable by this value: "globally unique."
 ///
 /// SDL provides functions to convert a GUID to/from a stri
-pub const GUID = @import("guid.zig").GUID;
+pub const Guid = @import("guid.zig").Guid;
 
 /// The SDL haptic subsystem manages haptic (force feedback) devices.
 ///
@@ -358,8 +391,10 @@ pub const hid_api = @import("hid_api.zig");
 /// In general these hints are just that - they may or may not be supported or applicable on any given platform,
 /// but they provide a way for an application or user to give the library a hint as to how they would like the library to work.
 pub const hints = @import("hints.zig");
-// pub const image = if (extension_options.image) @import("image.zig") else void;
 
+/// This is a simple library to load images of various formats as SDL surfaces.
+/// It can load BMP, GIF, JPEG, LBM, PCX, PNG, PNM (PPM/PGM/PBM), QOI, TGA, XCF, XPM, and simple SVG format images.
+/// It can also load AVIF, JPEG-XL, TIFF, and WebP images, depending on build options.
 pub const zstbi = if (extension_options.image) @import("zstbi") else void;
 
 /// SDL does some preprocessor gymnastics to determine if any CPU-specific compiler intrinsics are available,
@@ -394,7 +429,7 @@ pub const io_stream = @import("io_stream.zig");
 /// For XInput controllers this returns the XInput user index.
 /// Many joysticks will not be able to supply this information.
 ///
-/// The `GUID` is used as a stable 128-bit identifier for a joystick device that does not change over time.
+/// The `Guid` is used as a stable 128-bit identifier for a joystick device that does not change over time.
 /// It identifies class of the device (a X360 wired controller for example).
 /// This identifier is platform dependent.
 ///
@@ -800,7 +835,7 @@ const std = @import("std");
 /// See Main callbacks in SDL3 for complete details.
 ///
 /// This enum is available since SDL 3.2.0.
-pub const AppResult = enum(c_uint) {
+pub const AppResult = enum(c.SDL_AppResult) {
     /// Value that requests that the app continue from the main callbacks.
     run = c.SDL_APP_CONTINUE,
     /// Value that requests termination with success from the main callbacks.
@@ -829,7 +864,7 @@ pub fn AppEventCallback(
     comptime UserData: type,
 ) type {
     return *const fn (
-        app_state: ?*UserData,
+        app_state: *UserData,
         event: events.Event,
     ) anyerror!AppResult;
 }
@@ -876,7 +911,7 @@ pub fn AppInitCallback(
 /// This datatype is available since SDL 3.2.0.
 pub fn AppIterateCallback(comptime UserData: type) type {
     return *const fn (
-        app_state: ?*UserData,
+        app_state: *UserData,
     ) anyerror!AppResult;
 }
 
@@ -1300,10 +1335,49 @@ pub fn wasInit(
 ///
 /// ## Version
 /// This datatype is available since SDL 3.2.0.
+pub const CallocFunc = *const fn (
+    num_members: usize,
+    size: usize,
+) ?[*]u8;
+
+/// A callback used to implement `calloc()`.
+///
+/// ## Function Parameters
+/// * `num_members`: The number of elements in the array.
+/// * `size`: The size of each element of the array.
+///
+/// ## Return Value
+/// Returns a pointer to the allocated array, or `null` if allocation failed.
+///
+/// ## Remarks
+/// SDL will always ensure that the passed `num_members` and `size` are both greater than `0`.
+///
+/// ## Thread Safety
+/// It should be safe to call this callback from any thread.
+///
+/// ## Version
+/// This datatype is available since SDL 3.2.0.
 pub const CallocFuncC = *const fn (
     num_members: usize,
     size: usize,
 ) callconv(.c) ?*anyopaque;
+
+/// A callback used to implement `free()`.
+///
+/// ## Function Parameters
+/// * `mem`: A pointer to allocated memory.
+///
+/// ## Remarks
+/// SDL will ensure `mem` will never be null.
+///
+/// ## Thread Safety
+/// It should be safe to call this callback from any thread.
+///
+/// ## Version
+/// This datatype is available since SDL 3.2.0.
+pub const FreeFunc = *const fn (
+    mem: [*]u8,
+) void;
 
 /// A callback used to implement `free()`.
 ///
@@ -1338,9 +1412,51 @@ pub const FreeFuncC = *const fn (
 ///
 /// ## Version
 /// This datatype is available since SDL 3.2.0.
+pub const MallocFunc = *const fn (
+    size: usize,
+) ?[*]u8;
+
+/// A callback used to implement `malloc()`.
+///
+/// ## Function Parameters
+/// * `size`: The size to allocate.
+///
+/// ## Return Value
+/// Returns a pointer to the allocated memory, or `null` if allocation failed.
+///
+/// ## Remarks
+/// SDL will always ensure that the passed `size` is greater than `0`.
+///
+/// ## Thread Safety
+/// It should be safe to call this callback from any thread.
+///
+/// ## Version
+/// This datatype is available since SDL 3.2.0.
 pub const MallocFuncC = *const fn (
     size: usize,
 ) callconv(.c) ?*anyopaque;
+
+/// A callback used to implement `realloc()`.
+///
+/// ## Function Parameters
+/// * `mem`: A pointer to allocated memory to reallocate, or `null`.
+/// * `size`: The new size of the memory.
+///
+/// ## Return Value
+/// Returns a pointer to the newly allocated memory, or `null` if allocation failed.
+///
+/// ## Remarks
+/// SDL will always ensure that the passed `size` is greater than `0`.
+///
+/// ## Thread Safety
+/// It should be safe to call this callback from any thread.
+///
+/// ## Version
+/// This datatype is available since SDL 3.2.0.
+pub const ReallocFunc = *const fn (
+    mem: ?[*]u8,
+    size: usize,
+) ?[*]u8;
 
 /// A callback used to implement `realloc()`.
 ///
@@ -1427,7 +1543,7 @@ pub const Environment = packed struct {
     pub fn getVariables(
         self: Environment,
     ) ![*:null][*c]u8 {
-        return try errors.wrapNull([*:null][*c]u8, c.SDL_GetEnvironmentVariables(self.value));
+        return try errors.wrapCallNull([*:null][*c]u8, c.SDL_GetEnvironmentVariables(self.value));
     }
 
     /// Create a set of environment variables.
@@ -1446,7 +1562,7 @@ pub const Environment = packed struct {
     pub fn init(
         populated: bool,
     ) !Environment {
-        return .{ .value = try errors.wrapNull(*c.SDL_Environment, c.SDL_CreateEnvironment(populated)) };
+        return .{ .value = try errors.wrapCallNull(*c.SDL_Environment, c.SDL_CreateEnvironment(populated)) };
     }
 
     /// Set the value of a variable in the environment.
@@ -1537,7 +1653,7 @@ pub fn free(mem: anytype) void {
 /// ## Version
 /// This function is available since SDL 3.2.0.
 pub fn getEnvironment() !Environment {
-    return .{ .value = try errors.wrapNull(*c.SDL_Environment, c.SDL_GetEnvironment()) };
+    return .{ .value = try errors.wrapCallNull(*c.SDL_Environment, c.SDL_GetEnvironment()) };
 }
 
 /// Get the current set of SDL memory functions.
@@ -1692,12 +1808,12 @@ fn sdlFree(ptr: *anyopaque, memory: []u8, alignment: std.mem.Alignment, ret_addr
 /// This is provided by zig-sdl3.
 pub fn restoreMemoryFunctions() !void {
     const originals = getOriginalMemoryFunctions();
-    return setMemoryFunctions(
+    return errors.wrapCallBool(c.SDL_SetMemoryFunctions(
         originals.malloc,
         originals.calloc,
         originals.realloc,
         originals.free,
-    );
+    ));
 }
 
 /// Replace SDL's memory allocation functions with a custom set.
@@ -1707,6 +1823,9 @@ pub fn restoreMemoryFunctions() !void {
 /// * `calloc`: Custom `calloc` function.
 /// * `realloc`: Custom `realloc` function.
 /// * `free`: Custom `free` function.
+///
+/// ## Return Value
+/// Returns the addresses to the C final functions.
 ///
 /// ## Remarks
 /// It is not safe to call this function once any allocations have been made, as future calls to `free()` will use the new allocator,
@@ -1720,18 +1839,43 @@ pub fn restoreMemoryFunctions() !void {
 /// ## Version
 /// This function is available since SDL 3.2.0.
 pub fn setMemoryFunctions(
-    malloc_fn: MallocFuncC,
-    calloc_fn: CallocFuncC,
-    realloc_fn: ReallocFuncC,
-    free_fn: FreeFuncC,
-) !void {
+    comptime malloc_fn: MallocFunc,
+    comptime calloc_fn: CallocFunc,
+    comptime realloc_fn: ReallocFunc,
+    comptime free_fn: FreeFunc,
+) !struct { malloc: MallocFuncC, calloc: CallocFuncC, realloc: ReallocFuncC, free: FreeFuncC } {
+    const Cb = struct {
+        pub fn malloc(
+            size: usize,
+        ) callconv(.c) ?*anyopaque {
+            return malloc_fn(size);
+        }
+        pub fn calloc(
+            num_members: usize,
+            size: usize,
+        ) callconv(.c) ?*anyopaque {
+            return calloc_fn(num_members, size);
+        }
+        pub fn realloc(
+            mem: ?*anyopaque,
+            size: usize,
+        ) callconv(.c) ?*anyopaque {
+            return realloc_fn(@alignCast(@ptrCast(mem)), size);
+        }
+        pub fn free(
+            mem: ?*anyopaque,
+        ) callconv(.c) void {
+            return free_fn(@alignCast(@ptrCast(mem.?)));
+        }
+    };
     const ret = c.SDL_SetMemoryFunctions(
-        malloc_fn,
-        calloc_fn,
-        realloc_fn,
-        free_fn,
+        Cb.malloc,
+        Cb.calloc,
+        Cb.realloc,
+        Cb.free,
     );
-    return errors.wrapCallBool(ret);
+    try errors.wrapCallBool(ret);
+    return .{ .malloc = Cb.malloc, .calloc = Cb.calloc, .realloc = Cb.realloc, .free = Cb.free };
 }
 
 /// Iterate over a UTF8 string in reverse.
@@ -1839,66 +1983,88 @@ var custom_allocator: std.mem.Allocator = undefined;
 
 const Allocation = struct {
     size: usize,
-    buf: void,
 };
 
-fn allocCalloc(num_members: usize, size: usize) callconv(.c) ?*anyopaque {
-    const total_buf = custom_allocator.alloc(u8, size * num_members + @sizeOf(Allocation)) catch return null;
+fn allocationSize(request_size: usize) usize {
+    var size: usize = request_size;
+    while (size % @min(@sizeOf(@cImport(@cInclude("stddef.h")).max_align_t), @sizeOf(?*anyopaque) * 2) != 0) // TODO: Optimize this?
+        size += 1;
+    return size;
+}
+
+fn makeAllocation(total_size: usize, comptime memset: bool) ?[*]u8 {
+    const total_buf = custom_allocator.alloc(u8, allocationSize(total_size) + @sizeOf(Allocation)) catch return null;
+    if (memset)
+        @memset(total_buf, 0);
     const allocation: *Allocation = @ptrCast(@alignCast(total_buf.ptr));
     allocation.size = total_buf.len;
-    return &allocation.buf;
+    const data_ptr: [*]u8 = @ptrFromInt(@intFromPtr(total_buf.ptr) + @sizeOf(Allocation));
+    // std.debug.print("MAKE PTR: {p}, {d}\n", .{ data_ptr, allocation.size });
+    return data_ptr;
 }
 
-fn allocFree(mem: ?*anyopaque) callconv(.c) void {
-    const raw_ptr = mem orelse return;
-    const allocation: *Allocation = @alignCast(@fieldParentPtr("buf", @as(*void, @ptrCast(raw_ptr))));
-    custom_allocator.free(@as([*]u8, @ptrCast(raw_ptr))[0..allocation.size]);
+fn allocCalloc(num_members: usize, size: usize) ?[*]u8 {
+    return makeAllocation(num_members * size, true);
 }
 
-fn allocMalloc(size: usize) callconv(.c) ?*anyopaque {
-    const total_buf = custom_allocator.alloc(u8, size + @sizeOf(Allocation)) catch return null;
-    const allocation: *Allocation = @ptrCast(@alignCast(total_buf.ptr));
-    allocation.size = total_buf.len;
-    return &allocation.buf;
+fn allocFree(mem: [*]u8) void {
+    const allocation: *Allocation = @ptrFromInt(@intFromPtr(mem) - @sizeOf(Allocation));
+    // std.debug.print("CLEAR PTR: {p}, {d}\n", .{ raw_ptr, allocation.size });
+    custom_allocator.free(@as([*]u8, @ptrCast(allocation))[0..allocation.size]);
 }
 
-fn allocRealloc(mem: ?*anyopaque, size: usize) callconv(.c) ?*anyopaque {
-    const raw_ptr = mem orelse return null;
-    var allocation: *Allocation = @alignCast(@fieldParentPtr("buf", @as(*void, @ptrCast(raw_ptr))));
-    const total_buf = custom_allocator.realloc(@as([*]u8, @ptrCast(raw_ptr))[0..allocation.size], size + @sizeOf(Allocation)) catch return null;
-    allocation = @ptrCast(@alignCast(total_buf.ptr));
-    allocation.size = total_buf.len;
-    return &allocation.buf;
+fn allocMalloc(size: usize) ?[*]u8 {
+    return makeAllocation(size, false);
 }
 
+fn allocRealloc(mem: ?[*]u8, size: usize) ?[*]u8 {
+    const raw_ptr = mem orelse return allocMalloc(size);
+    // const allocation: *Allocation = @alignCast(@fieldParentPtr("buf", @as(*void, @ptrCast(raw_ptr))));
+    allocFree(raw_ptr);
+    return allocMalloc(size);
+    // const total_buf = custom_allocator.realloc(@as([*]u8, @ptrCast(raw_ptr))[0..allocation.size], allocationSize(size) + @sizeOf(Allocation)) catch return null;
+    // allocation = @ptrCast(@alignCast(total_buf.ptr));
+    // allocation.size = total_buf.len;
+    // return &allocation.buf;
+}
+
+///zmath library
+pub const zmath = @import("zmath");
+///Android import?
+pub const android = @import("android");
 /// Replace SDL's memory allocation functions to use with an allocator.
 /// This can be restored with `restoreMemoryFunctions()`.
 ///
 /// ## Function Parameters
 /// * `new_allocator`: The new allocator to use for allocations.
 ///
+/// ## Return Value
+/// Returns the addresses to the C final functions.
+///
+/// ## Remarks
+/// It is not safe to call this function once any allocations have been made, as future calls to `free()` will use the new allocator,
+/// even if they came from an `malloc()` made with the old one!
+///
+/// If used, usually this needs to be the first call made into the SDL library, if not the very first thing done at program startup time.
+///
 /// ## Version
 /// This is provided by zig-sdl3.
 pub fn setMemoryFunctionsByAllocator(
     new_allocator: std.mem.Allocator,
-) !void {
+) !struct { malloc: MallocFuncC, calloc: CallocFuncC, realloc: ReallocFuncC, free: FreeFuncC } {
     custom_allocator = new_allocator;
-    return setMemoryFunctions(
+    const ret = try setMemoryFunctions(
         allocMalloc,
         allocCalloc,
         allocRealloc,
         allocFree,
     );
+    return .{ .malloc = ret.malloc, .calloc = ret.calloc, .realloc = ret.realloc, .free = ret.free };
 }
 
 fn testRunOnMainThreadCb(user_data: ?*i32) void {
     user_data.?.* = -1;
 }
-
-///Frame Rate Capping?
-pub const FpsManager = @import("FPSManager.zig");
-///zmath library
-pub const zmath = @import("zmath");
 
 // Add all tests from subsystems.
 test {

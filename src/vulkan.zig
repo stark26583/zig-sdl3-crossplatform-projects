@@ -13,12 +13,12 @@ pub const Instance = c.VkInstance;
 pub const PhysicalDevice = c.VkPhysicalDevice;
 
 /// Vulkan surface handle.
-pub const SurfaceKHR = c.VkSurfaceKHR;
+pub const SurfaceKhr = c.VkSurfaceKHR;
 
 /// Vulkan surface.
 pub const Surface = struct {
     instance: Instance,
-    surface: SurfaceKHR,
+    surface: SurfaceKhr,
     allocator: ?AllocationCallbacks,
 
     /// Destroy the Vulkan rendering surface of a window.
@@ -156,7 +156,7 @@ pub fn getPresentationSupport(
 /// This function is available since SDL 3.2.0.
 pub fn getVkGetInstanceProcAddr() !*const anyopaque {
     const ret = c.SDL_Vulkan_GetVkGetInstanceProcAddr();
-    return errors.wrapNull(*const anyopaque, @ptrCast(ret));
+    return errors.wrapCallNull(*const anyopaque, @ptrCast(ret));
 }
 
 /// Dynamically load the Vulkan loader library.

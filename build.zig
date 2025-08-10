@@ -1,6 +1,10 @@
 const std = @import("std");
+const builtin = @import("builtin");
+const zemscripten = @import("zemscripten");
 const android = @import("android");
 const assetpack = @import("assetpack");
+
+const android_version: android.ApiLevel = .android15;
 
 pub fn build(b: *std.Build) !void {
     const root_target = b.standardTargetOptions(.{});
@@ -14,46 +18,30 @@ pub fn build(b: *std.Build) !void {
     else
         android_targets;
 
-    const projects = try makeProjects(b);
-    defer {
-        for (projects) |project| {
-            b.allocator.free(project.name);
-        }
-        b.allocator.free(projects);
-    }
-
     // TODO: add more targets into single apk
-    // const android_module_single_target: ?*std.Build.Module = blk: {
-    //     if (targets.len == 1 and root_target.result.abi.isAndroid()) {
-    //         const android_dep = b.dependency("android", .{
-    //             .optimize = optimize,
-    //             .target = root_target,
-    //         });
-    //
-    //         break :blk android_dep.module("android");
-    //     } else break :blk null;
-    // };
+    const android_module_single_target: ?*std.Build.Module = blk: {
+        if (targets.len == 1 and root_target.result.abi.isAndroid()) {
+            const android_dep = b.dependency("android", .{
+                .optimize = optimize,
+                .target = root_target,
+            });
 
-    // TODO: add sdl_image_dep after porting it to android
-    // const sdl_image_dep = b.dependency("sdl_image", .{
-    //     .target = root_target,
-    //     .optimize = optimize,
-    //     // TODO: Add options here...
-    // });
+            break :blk android_dep.module("android");
+        } else break :blk null;
+    };
 
     const zmath = b.dependency("zmath", .{});
     const zstbi = b.dependency("zstbi", .{});
-    // const dvui = b.dependency("dvui", .{
-    //     .target = root_target,
-    //     .optimize = optimize,
-    //     .backend = .sdl3,
-    // });
+    const zgltf = b.dependency("zgltf", .{});
 
     const cat_module = b.createModule(.{
         .root_source_file = b.path("src/sdl3.zig"),
-        // .target = root_target,
     });
-    // cat_module.addImport("dvui", dvui.module("dvui_sdl3"));
+
+    if (android_module_single_target) |android_module| {
+        cat_module.addImport("android", android_module);
+    }
+
     const extension_options = b.addOptions();
     const main_callbacks = b.option(bool, "callbacks", "Enable SDL callbacks rather than use a main function") orelse false;
     extension_options.addOption(bool, "callbacks", main_callbacks);
@@ -64,42 +52,38 @@ pub fn build(b: *std.Build) !void {
     const ext_image = b.option(bool, "ext_image", "Enable SDL_image extension") orelse false;
     extension_options.addOption(bool, "image", ext_image);
 
-    // TODO:
-    // const ext_ttf = b.option(bool, "ext_ttf", "Enable SDL_ttf extension") orelse false;
-    // extension_options.addOption(bool, "ttf", ext_ttf);
-
     // Linking zig-sdl to sdl3, makes the library much easier to use.
     cat_module.addOptions("extension_options", extension_options);
     // TODO:
-    // if (ext_image) {
     const zstbi_mod = zstbi.module("root");
     cat_module.addImport("zstbi", zstbi_mod);
     cat_module.addImport("zmath", zmath.module("root"));
-    // }
+    cat_module.addImport("zgltf", zgltf.module("zgltf"));
 
-    // Linking zig-sdl to sdl3, makes the library much easier to use.
+    const projects = try makeProjects(b);
+    defer {
+        for (projects) |project| {
+            b.allocator.free(project.name);
+        }
+        b.allocator.free(projects);
+    }
 
     for (projects) |project| {
         const assets_path = b.pathJoin(&.{ projects_path, project.name, "assets" });
-        // If building with Android, initialize the tools / build
-
-        // const generator_step: ?*std.Build.Step = blk: {
-        //     if (root_target.result.abi.isAndroid()) break :blk try generator(b, projects_path, project.name) else break :blk null;
-        // };
         if (root_target.result.abi.isAndroid()) try generator(b, projects_path, project.name);
 
-        const android_apk: ?*android.APK = blk: {
+        const android_apk: ?*android.Apk = blk: {
             if (android_targets.len == 0) {
                 break :blk null;
             }
-            const android_tools = android.Tools.create(b, .{
-                .api_level = .android15,
+            const android_sdk = android.Sdk.create(b, .{});
+            const apk = android_sdk.createApk(.{
+                .api_level = android_version,
                 .build_tools_version = "35.0.1",
-                .ndk_version = "29.0.13113456",
+                .ndk_version = "29.0.13599879",
             });
-            const apk = android.APK.create(b, android_tools);
 
-            const key_store_file = android_tools.createKeyStore(android.CreateKey.example());
+            const key_store_file = android_sdk.createKeyStore(.example);
             apk.setKeyStore(key_store_file);
 
             const android_project_files_path = b.pathJoin(&.{ projects_path, project.name, "android_project_files" });
@@ -132,16 +116,6 @@ pub fn build(b: *std.Build) !void {
         // if (generator_step) |generator_step_| run.dependOn(generator_step_);
 
         for (targets) |target| {
-            const android_module: ?*std.Build.Module = blk: {
-                if (targets.len > 1 and target.result.abi.isAndroid()) {
-                    const android_dep = b.dependency("android", .{
-                        .optimize = optimize,
-                        .target = target,
-                    });
-
-                    break :blk android_dep.module("android");
-                } else break :blk null;
-            };
             var emscripten_system_include_path: ?std.Build.LazyPath = null;
             switch (target.result.os.tag) {
                 .emscripten => {
@@ -162,26 +136,11 @@ pub fn build(b: *std.Build) !void {
                 .link_libc = target.result.os.tag == .emscripten,
             });
 
+            // app_mod.addImport("android", android_mod);
+
             if (pathExists(assets_path)) {
                 const assets_module = assetpack.pack(b, b.path(assets_path), .{});
                 app_mod.addImport("assets", assets_module);
-            }
-
-            // if (android_module_single_target) |android_mod| {
-            //     app_mod.addImport("android", android_mod);
-            // }
-            if (android_module) |android_mod| {
-                const name = try std.mem.concat(b.allocator, u8, &.{ "android", target.result.cpu.arch.genericName() });
-                defer b.allocator.free(name);
-
-                app_mod.addImport(name, android_mod);
-            }
-            app_mod.addImport("Cat", cat_module);
-
-            if (emscripten_system_include_path) |path| {
-                cat_module.addSystemIncludePath(path);
-                app_mod.addSystemIncludePath(path);
-                zstbi_mod.addSystemIncludePath(path);
             }
 
             const library_optimize = if (!target.result.abi.isAndroid())
@@ -200,78 +159,39 @@ pub fn build(b: *std.Build) !void {
             const sdl_lib = sdl_dep.artifact("SDL3");
             if (optimize != .Debug) reduce_size(sdl_lib, optimize);
 
-            if (ext_image) {
-                const sdl_image_dep = b.dependency("sdl_image", .{
+            const zgui_lib: *std.Build.Step.Compile = blk: {
+                // if (zgui_enabled) {
+                const zgui = b.dependency("zgui", .{
                     .target = target,
                     .optimize = optimize,
-                    // TODO: Add options here...
+                    .backend = .sdl3_renderer,
+                    .shared = false,
+                    .with_implot = true,
                 });
-                const sdl_image_module = sdl_image_dep.module("sdl_image");
+                const zgui_mod = zgui.module("root");
+                const zgui_lib = zgui.artifact("imgui");
+                if (emscripten_system_include_path) |emscripten_system_include_path_| {
+                    zgui_mod.addSystemIncludePath(emscripten_system_include_path_);
+                    zgui_lib.addSystemIncludePath(emscripten_system_include_path_);
+                }
+                if (android_apk) |apk| {
+                    zgui_mod.addIncludePath(sdl_dep.path("include"));
+                    zgui_lib.addSystemIncludePath(.{ .cwd_relative = apk.ndk.sysroot_path });
+                }
 
-                const sdl_image_lib = b.addLibrary(.{
-                    .name = "SDL_image",
-                    .version = .{ .major = 3, .minor = 2, .patch = 4 },
-                    .linkage = .static,
-                    .root_module = sdl_image_module,
-                });
-                if (target.result.abi.isAndroid()) {
-                    sdl_image_lib.addIncludePath(sdl_dep.path("include"));
-                    const android_tools = android.Tools.create(b, .{
-                        .api_level = .android15,
-                        .build_tools_version = "35.0.1",
-                        .ndk_version = "29.0.13113456",
-                    });
-                    android_tools.setLibCFile(sdl_image_lib);
-                }
-                if (target.result.os.tag == .windows) {
-                    sdl_image_lib.addIncludePath(sdl_dep.path("include"));
-                }
-                if (target.result.os.tag == .emscripten) {
-                    sdl_image_lib.addIncludePath(emscripten_system_include_path.?);
-                    sdl_image_lib.addIncludePath(sdl_dep.path("include"));
-                }
-                sdl_image_lib.linkLibC();
-                b.installArtifact(sdl_image_lib);
-                sdl_image_lib.installHeadersDirectory(sdl_image_dep.builder.dependency("SDL_image", .{}).path("include"), "", .{});
+                app_mod.addImport("zgui", zgui_mod);
 
-                // cat_module.addImport("SDL3_image", sdl_image_module);
-                cat_module.linkLibrary(sdl_image_lib);
+                break :blk zgui_lib;
+                // } else break :blk null;
+            };
+            app_mod.addImport("Cat", cat_module);
+
+            if (emscripten_system_include_path) |path| {
+                cat_module.addSystemIncludePath(path);
+                app_mod.addSystemIncludePath(path);
+                zstbi_mod.addSystemIncludePath(path);
+                zgui_lib.root_module.addSystemIncludePath(path);
             }
-            // TODO:
-            // if (ext_ttf) {
-            //     const sdl_ttf_dep = b.dependency("sdl_ttf", .{
-            //         .target = target,
-            //         .optimize = optimize,
-            //         // TODO: Add options here...
-            //     });
-            //     const sdl_ttf_module = sdl_ttf_dep.module("sdl_ttf");
-            //
-            //     const sdl_ttf_lib = b.addLibrary(.{
-            //         .name = "SDL_ttf",
-            //         .version = .{ .major = 3, .minor = 2, .patch = 4 },
-            //         .linkage = .static,
-            //         .root_module = sdl_ttf_module,
-            //     });
-            //     if (target.result.abi.isAndroid()) {
-            //         sdl_ttf_lib.addIncludePath(sdl_dep.path("include"));
-            //         const android_tools = android.Tools.create(b, .{
-            //             .api_level = .android15,
-            //             .build_tools_version = "35.0.1",
-            //             .ndk_version = "29.0.13113456",
-            //         });
-            //         android_tools.setLibCFile(sdl_ttf_lib);
-            //     }
-            //     if (target.result.os.tag == .emscripten) {
-            //         sdl_ttf_lib.addIncludePath(emscripten_system_include_path.?);
-            //         sdl_ttf_lib.addIncludePath(sdl_dep.path("include"));
-            //     }
-            //     sdl_ttf_lib.linkLibC();
-            //     b.installArtifact(sdl_ttf_lib);
-            //     sdl_ttf_lib.installHeadersDirectory(sdl_ttf_dep.builder.dependency("SDL_ttf", .{}).path("include"), "", .{});
-            //
-            //     // cat_module.addImport("SDL3_image", sdl_image_module);
-            //     cat_module.linkLibrary(sdl_ttf_lib);
-            // }
 
             if (target.result.os.tag == .emscripten) {
                 // Build for the Web.
@@ -283,6 +203,8 @@ pub fn build(b: *std.Build) !void {
                     .root_module = app_mod,
                 });
                 app_lib.want_lto = optimize != .Debug;
+                // if (zgui_lib) |zgui_lib_| app_lib.linkLibrary(zgui_lib_);
+                app_lib.linkLibrary(zgui_lib);
 
                 const run_emcc = b.addSystemCommand(&.{"emcc"});
 
@@ -329,12 +251,16 @@ pub fn build(b: *std.Build) !void {
                 }
 
                 // Patch the default HTML shell.
+                run_emcc.addArg("--shell-file");
+                run_emcc.addFileArg(b.path("src/shell/shell.html"));
                 run_emcc.addArg("--pre-js");
                 run_emcc.addFileArg(b.addWriteFiles().add("pre.js", (
                     // Display messages printed to stderr.
                     \\Module['printErr'] ??= Module['print'];
                     \\
                 )));
+                // run_emcc.addArg("--pre-js");
+                // run_emcc.addFileArg(b.path("src/shell/pixel-ratio.js"));
 
                 run_emcc.addArg("-o");
 
@@ -350,6 +276,8 @@ pub fn build(b: *std.Build) !void {
                 });
 
                 const run_emrun = b.addSystemCommand(&.{"emrun"});
+                // run_emrun.addArg("--log-stdout");
+                // run_emrun.addFileArg(b.path("log-web.txt"));
                 run_emrun.addArg(b.pathJoin(&.{ b.install_path, "www", html_file }));
                 if (b.args) |args| run_emrun.addArgs(args);
                 run_emrun.step.dependOn(&add_web_install_dir.step);
@@ -371,8 +299,10 @@ pub fn build(b: *std.Build) !void {
                     if (optimize != .Debug) reduce_size(exe, optimize);
 
                     exe.linkLibrary(sdl_lib);
+                    // if (zgui_lib) |zgui_lib_| exe.linkLibrary(zgui_lib_);
+                    exe.linkLibrary(zgui_lib);
 
-                    const apk: *android.APK = android_apk orelse @panic("Android APK should be initialized");
+                    const apk: *android.Apk = android_apk orelse @panic("Android APK should be initialized");
 
                     apk.addArtifact(exe);
 
@@ -388,6 +318,8 @@ pub fn build(b: *std.Build) !void {
                         .strip = optimize == .ReleaseSafe or optimize == .ReleaseFast or optimize == .ReleaseSmall,
                     });
                     app_exe.want_lto = optimize != .Debug;
+                    // if (zgui_lib) |zgui_lib_| app_exe.linkLibrary(zgui_lib_);
+                    app_exe.linkLibrary(zgui_lib);
 
                     app_exe.addIncludePath(sdl_dep.path("include"));
                     // app_exe.addLibraryPath(sdl_dep.path("lib"));
@@ -406,16 +338,19 @@ pub fn build(b: *std.Build) !void {
                         .strip = optimize == .ReleaseSafe or optimize == .ReleaseFast or optimize == .ReleaseSmall,
                     });
                     app_exe.want_lto = optimize != .Debug;
+                    // if (zgui_lib) |zgui_lib_| app_exe.linkLibrary(zgui_lib_);
+                    app_exe.linkLibrary(zgui_lib);
 
                     if (optimize != .Debug) reduce_size(app_exe, optimize);
 
-                    b.installArtifact(app_exe);
+                    const install_step = b.addInstallArtifact(app_exe, .{});
 
                     const run_app = b.addRunArtifact(app_exe);
                     if (b.args) |args| run_app.addArgs(args);
                     // run_app.step.dependOn(b.getInstallStep());
                     // run_app.step.dependOn(app_exe.step);
 
+                    run_app.step.dependOn(&install_step.step);
                     run.dependOn(&run_app.step);
                 }
             }
@@ -431,28 +366,26 @@ pub fn build(b: *std.Build) !void {
     }
 
     for (gpu_projects) |project| {
-        if (std.mem.containsAtLeast(u8, project.name, 1, "validation")) continue;
-        // const generator_step: ?*std.Build.Step = blk: {
-        //     if (root_target.result.abi.isAndroid()) break :blk try generator(b, gpu_projects_path, project.name) else break :blk null;
-        // };
-
+        const assets_path = b.pathJoin(&.{ gpu_projects_path, project.name, "assets" });
         if (root_target.result.abi.isAndroid()) try generator(b, gpu_projects_path, project.name);
 
-        const shaders_path = b.pathJoin(&.{ gpu_projects_path, project.name, "shaders" });
+        const shaders_src_path = b.pathJoin(&.{ gpu_projects_path, project.name, "shaders" });
+        const shaders_out_path = b.pathJoin(&.{ gpu_projects_path, project.name, "shaders/compiled" });
         // If building with Android, initialize the tools / build
-        const android_apk: ?*android.APK = blk: {
+        const android_apk: ?*android.Apk = blk: {
             if (android_targets.len == 0) {
                 break :blk null;
             }
-            const android_tools = android.Tools.create(b, .{
-                .api_level = .android15,
+            const android_sdk = android.Sdk.create(b, .{});
+            const apk = android_sdk.createApk(.{
+                .api_level = android_version,
                 .build_tools_version = "35.0.1",
                 .ndk_version = "29.0.13113456",
             });
-            const apk = android.APK.create(b, android_tools);
 
-            const key_store_file = android_tools.createKeyStore(android.CreateKey.example());
+            const key_store_file = android_sdk.createKeyStore(.example);
             apk.setKeyStore(key_store_file);
+
             const android_project_files_path = b.pathJoin(&.{ gpu_projects_path, project.name, "android_project_files" });
 
             apk.setAndroidManifest(b.path(b.pathJoin(&.{ android_project_files_path, "AndroidManifest.xml" })));
@@ -480,56 +413,27 @@ pub fn build(b: *std.Build) !void {
         defer b.allocator.free(apk_description);
 
         const run = if (root_target.result.abi.isAndroid()) b.step(project.name, apk_description) else b.step(project.name, description);
-        // if (generator_step) |generator_step_| run.dependOn(generator_step_);
 
         for (targets) |target| {
-            const android_module: ?*std.Build.Module = blk: {
-                if (targets.len > 1 and target.result.abi.isAndroid()) {
-                    const android_dep = b.dependency("android", .{
-                        .optimize = optimize,
-                        .target = target,
-                    });
-
-                    break :blk android_dep.module("android");
-                } else break :blk null;
-            };
-            // var emscripten_system_include_path: ?std.Build.LazyPath = null;
-            // switch (target.result.os.tag) {
-            //     .emscripten => {
-            //         @panic("GPU not implemented for web.");
-            //         // if (b.sysroot) |sysroot| {
-            //         //     emscripten_system_include_path = .{ .cwd_relative = b.pathJoin(&.{ sysroot, "include" }) };
-            //         // } else {
-            //         //     std.log.err("'--sysroot' is required when building for Emscripten", .{});
-            //         //     std.process.exit(1);
-            //         // }
-            //     },
-            //     else => {},
-            // }
-
             const app_mod = b.createModule(.{
                 .root_source_file = b.path(b.pathJoin(&.{ gpu_projects_path, project.name, main_file_name })),
                 .target = target,
                 .optimize = optimize,
-                // .link_libc = target.result.os.tag == .emscripten,
             });
 
-            try compileShaders(b, app_mod, shaders_path);
-            // if (android_module_single_target) |android_mod| {
-            //     app_mod.addImport("android", android_mod);
-            // }
-            if (android_module) |android_mod| {
-                const name = try std.mem.concat(b.allocator, u8, &.{ "android", target.result.cpu.arch.genericName() });
-                defer b.allocator.free(name);
+            if (pathExists(assets_path)) {
+                const assets_module = assetpack.pack(b, b.path(assets_path), .{});
+                app_mod.addImport("assets", assets_module);
+            }
 
-                app_mod.addImport(name, android_mod);
+            if (pathExists(shaders_src_path)) {
+                try compileZigShaders(b, app_mod, shaders_src_path);
+                const hlsl_shaders_path = b.pathJoin(&.{ shaders_src_path, "src" });
+                if (pathExists(hlsl_shaders_path)) {
+                    try compileHlslShaders(b, app_mod, run, hlsl_shaders_path, shaders_out_path);
+                }
             }
             app_mod.addImport("Cat", cat_module);
-
-            // if (emscripten_system_include_path) |path| {
-            //     cat_module.addSystemIncludePath(path);
-            //     app_mod.addSystemIncludePath(path);
-            // }
 
             const library_optimize = if (!target.result.abi.isAndroid())
                 optimize
@@ -546,69 +450,51 @@ pub fn build(b: *std.Build) !void {
                 .pic = true,
             });
 
-            if (ext_image) {
-                const sdl_image_dep = b.dependency("sdl_image", .{
+            const zgui_gpu_lib: *std.Build.Step.Compile = blk: {
+                // if (zgui_enabled) {
+                const zgui_gpu = b.dependency("zgui", .{
                     .target = target,
                     .optimize = optimize,
-                    // TODO: Add options here...
+                    .backend = .sdl3_gpu,
+                    .shared = false,
+                    .with_implot = true,
                 });
-                const sdl_image_module = sdl_image_dep.module("sdl_image");
-
-                const sdl_image_lib = b.addLibrary(.{
-                    .name = "SDL_image",
-                    .version = .{ .major = 3, .minor = 2, .patch = 4 },
-                    .linkage = .static,
-                    .root_module = sdl_image_module,
-                });
-                if (target.result.abi.isAndroid()) {
-                    sdl_image_lib.addIncludePath(sdl_dep.path("include"));
-                    const android_tools = android.Tools.create(b, .{
-                        .api_level = .android15,
-                        .build_tools_version = "35.0.1",
-                        .ndk_version = "29.0.13113456",
-                    });
-                    android_tools.setLibCFile(sdl_image_lib);
+                const zgui_gpu_mod = zgui_gpu.module("root");
+                const zgui_gpu_lib = zgui_gpu.artifact("imgui");
+                if (android_apk) |apk| {
+                    zgui_gpu_mod.addSystemIncludePath(.{ .cwd_relative = apk.ndk.sysroot_path });
+                    const android_triple = try getAndroidTriple(target);
+                    zgui_gpu_mod.addLibraryPath(.{ .cwd_relative = b.pathJoin(&.{ apk.ndk.sysroot_path, "usr", "lib", android_triple, b.fmt("{}", .{@intFromEnum(android_version)}) }) });
+                    zgui_gpu_lib.addSystemIncludePath(.{ .cwd_relative = apk.ndk.sysroot_path });
+                    zgui_gpu_lib.addLibraryPath(.{ .cwd_relative = b.pathJoin(&.{ apk.ndk.sysroot_path, "usr", "lib", android_triple, b.fmt("{}", .{@intFromEnum(android_version)}) }) });
+                    const lib_c = apk.sdk.createOrGetLibCFile(zgui_gpu_lib, .android15, apk.ndk.sysroot_path, apk.ndk.version);
+                    zgui_gpu_lib.setLibCFile(lib_c);
                 }
-                sdl_image_lib.linkLibC();
-                b.installArtifact(sdl_image_lib);
-                sdl_image_lib.installHeadersDirectory(sdl_image_dep.builder.dependency("SDL_image", .{}).path("include"), "", .{});
 
-                // cat_module.addImport("SDL3_image", sdl_image_module);
-                cat_module.linkLibrary(sdl_image_lib);
-            }
+                app_mod.addImport("zgui", zgui_gpu_mod);
 
-            // TODO:
-            // if (ext_ttf) {
-            //     const sdl_ttf_dep = b.dependency("sdl_ttf", .{
-            //         .target = target,
-            //         .optimize = optimize,
-            //         // TODO: Add options here...
-            //     });
-            //     const sdl_ttf_module = sdl_ttf_dep.module("sdl_ttf");
-            //
-            //     const sdl_ttf_lib = b.addLibrary(.{
-            //         .name = "SDL_ttf",
-            //         .version = .{ .major = 3, .minor = 2, .patch = 4 },
-            //         .linkage = .static,
-            //         .root_module = sdl_ttf_module,
-            //     });
-            //     if (target.result.abi.isAndroid()) {
-            //         sdl_ttf_lib.addIncludePath(sdl_dep.path("include"));
-            //         const android_tools = android.Tools.create(b, .{
-            //             .api_level = .android15,
-            //             .build_tools_version = "35.0.1",
-            //             .ndk_version = "29.0.13113456",
-            //         });
-            //         android_tools.setLibCFile(sdl_ttf_lib);
-            //     }
-            //     sdl_ttf_lib.linkLibC();
-            //     b.installArtifact(sdl_ttf_lib);
-            //     sdl_ttf_lib.installHeadersDirectory(sdl_ttf_dep.builder.dependency("SDL_ttf", .{}).path("include"), "", .{});
-            //
-            //     // cat_module.addImport("SDL3_image", sdl_image_module);
-            //     cat_module.linkLibrary(sdl_ttf_lib);
-            // }
+                break :blk zgui_gpu_lib;
+                // } else break :blk null;
+            };
 
+            const zmesh_lib: *std.Build.Step.Compile = blk: {
+                const zmesh = b.dependency("zmesh", .{
+                    .target = target,
+                    .optimize = optimize,
+                });
+                const zmesh_mod = zmesh.module("root");
+                const zmesh_lib = zmesh.artifact("zmesh");
+                if (android_apk) |apk| {
+                    zmesh_mod.addSystemIncludePath(.{ .cwd_relative = apk.ndk.sysroot_path });
+                    zmesh_lib.addSystemIncludePath(.{ .cwd_relative = apk.ndk.sysroot_path });
+                }
+
+                app_mod.addImport("zmesh", zmesh_mod);
+
+                break :blk zmesh_lib;
+            };
+
+            app_mod.addImport("Cat", cat_module);
             // Build for desktop or Android.
             if (target.result.abi.isAndroid()) {
                 const sdl_lib = sdl_dep.artifact("SDL3");
@@ -623,13 +509,16 @@ pub fn build(b: *std.Build) !void {
                     .root_module = app_mod,
                     .linkage = .dynamic,
                 });
+                exe.linkLibrary(zgui_gpu_lib);
+                exe.linkLibrary(zmesh_lib);
+
                 // exe.addLibraryPath(b.path("gpu_projects/valdation_layers/arm64-v8a/"));
                 // exe.linkSystemLibrary("VkLayer_khronos_validation");
                 if (optimize != .Debug) reduce_size(exe, optimize);
 
                 exe.linkLibrary(sdl_lib);
 
-                const apk: *android.APK = android_apk orelse @panic("Android APK should be initialized");
+                const apk: *android.Apk = android_apk orelse @panic("Android APK should be initialized");
 
                 apk.addArtifact(exe);
 
@@ -637,6 +526,28 @@ pub fn build(b: *std.Build) !void {
                     const apk_install = apk_.addInstallApk();
                     run.dependOn(&apk_install.step);
                 }
+            } else if (target.result.os.tag == .windows) {
+                cat_module.addIncludePath(sdl_dep.path("include"));
+                const sdl_lib = sdl_dep.artifact("SDL3");
+                const app_exe = b.addExecutable(.{
+                    .name = project.name,
+                    .root_module = app_mod,
+                    .strip = optimize == .ReleaseSafe or optimize == .ReleaseFast or optimize == .ReleaseSmall,
+                });
+                app_exe.want_lto = optimize != .Debug;
+
+                // if (zgui_gpu_lib) |zgui_gpu_lib_|
+                app_exe.linkLibrary(zgui_gpu_lib);
+                app_exe.linkLibrary(zmesh_lib);
+
+                app_exe.addIncludePath(sdl_dep.path("include"));
+                // app_exe.addLibraryPath(sdl_dep.path("lib"));
+                app_exe.linkLibrary(sdl_lib);
+
+                if (optimize != .Debug) reduce_size(app_exe, optimize);
+                const install_step = b.addInstallArtifact(app_exe, .{});
+
+                run.dependOn(&install_step.step);
             } else {
                 const sdl_lib = sdl_dep.artifact("SDL3");
                 if (optimize != .Debug) reduce_size(sdl_lib, optimize);
@@ -648,16 +559,21 @@ pub fn build(b: *std.Build) !void {
                     .root_module = app_mod,
                     .strip = optimize == .ReleaseSafe or optimize == .ReleaseFast or optimize == .ReleaseSmall,
                 });
+
+                // if (zgui_gpu_lib) |zgui_gpu_lib_|
+                app_exe.linkLibrary(zgui_gpu_lib);
+                app_exe.linkLibrary(zmesh_lib);
                 app_exe.want_lto = optimize != .Debug;
                 if (optimize != .Debug) reduce_size(app_exe, optimize);
 
-                b.installArtifact(app_exe);
+                const install_step = b.addInstallArtifact(app_exe, .{});
 
                 const run_app = b.addRunArtifact(app_exe);
                 if (b.args) |args| run_app.addArgs(args);
                 // run_app.step.dependOn(b.getInstallStep());
                 // run_app.step.dependOn(app_exe.step);
 
+                run_app.step.dependOn(&install_step.step);
                 run.dependOn(&run_app.step);
             }
         }
@@ -714,7 +630,7 @@ fn makeGpuProjects(b: *std.Build) ![]Project {
     return try projects.toOwnedSlice();
 }
 
-fn compileShader(
+fn compileZigShader(
     b: *std.Build,
     target: std.Build.ResolvedTarget,
     module: *std.Build.Module,
@@ -735,30 +651,98 @@ fn compileShader(
     });
 }
 
-fn compileShaders(b: *std.Build, module: *std.Build.Module, shaders_path: []const u8) !void {
-    if (pathExists(shaders_path)) {
-        const vulkan12_target = b.resolveTargetQuery(.{
-            .cpu_arch = .spirv64,
-            .cpu_model = .{ .explicit = &std.Target.spirv.cpu.vulkan_v1_2 },
-            .cpu_features_add = std.Target.spirv.featureSet(&.{.int64}),
-            .os_tag = .vulkan,
-            .ofmt = .spirv,
-        });
-        // Compile shaders. Something about this feels hacky though with how the paths are gotten with cwd rather than the build system paths.
-        var shader_dir = try std.fs.cwd().openDir(shaders_path, .{ .iterate = true });
-        defer shader_dir.close();
-        var shader_dir_walker = try shader_dir.walk(b.allocator);
-        defer shader_dir_walker.deinit();
-        while (try shader_dir_walker.next()) |shader| {
-            if (shader.kind != .file or !(std.mem.endsWith(u8, shader.basename, ".vert.zig") or std.mem.endsWith(u8, shader.basename, ".frag.zig")))
-                continue;
-            const spv_name = try std.mem.replaceOwned(u8, b.allocator, shader.basename, ".zig", ".spv");
-            defer b.allocator.free(spv_name);
+fn compileZigShaders(b: *std.Build, module: *std.Build.Module, shaders_path: []const u8) !void {
+    const vulkan12_target = b.resolveTargetQuery(.{
+        .cpu_arch = .spirv64,
+        .cpu_model = .{ .explicit = &std.Target.spirv.cpu.vulkan_v1_2 },
+        .cpu_features_add = std.Target.spirv.featureSet(&.{.int64}),
+        .os_tag = .vulkan,
+        .ofmt = .spirv,
+    });
+    // Compile shaders. Something about this feels hacky though with how the paths are gotten with cwd rather than the build system paths.
+    var shader_dir = try std.fs.cwd().openDir(shaders_path, .{ .iterate = true });
+    defer shader_dir.close();
+    var shader_dir_walker = try shader_dir.walk(b.allocator);
+    defer shader_dir_walker.deinit();
+    while (try shader_dir_walker.next()) |shader| {
+        if (shader.kind != .file or !(std.mem.endsWith(u8, shader.basename, ".vert.zig") or std.mem.endsWith(u8, shader.basename, ".frag.zig")))
+            continue;
+        const spv_name = try std.mem.replaceOwned(u8, b.allocator, shader.basename, ".zig", ".spv");
+        defer b.allocator.free(spv_name);
 
-            const shader_path = b.pathJoin(&.{ shaders_path, shader.basename });
-            compileShader(b, vulkan12_target, module, shader_path, spv_name);
-        }
+        const shader_path = b.pathJoin(&.{ shaders_path, shader.basename });
+        compileZigShader(b, vulkan12_target, module, shader_path, spv_name);
     }
+}
+
+// -s | --source <value>
+// -d | --dest <value>
+// -t | --stage <value>
+// -e | --entrypoint <va
+// -o | --output <value>
+
+fn compileHlslShader(b: *std.Build, module: *std.Build.Module, run_step: *std.Build.Step, src_dir_path: []const u8, src_name: []const u8, out_dir_path: []const u8, out_name: []const u8) void {
+    const shadercross = b.addSystemCommand(&.{
+        "shadercross",
+    });
+
+    shadercross.addArg("-s");
+    shadercross.addArg("hlsl");
+    shadercross.addArg(b.pathJoin(&.{ src_dir_path, src_name }));
+    if (std.mem.containsAtLeast(u8, src_name, 1, "vertex")) {
+        shadercross.addArg("-t");
+        shadercross.addArg("vertex");
+    } else if (std.mem.containsAtLeast(u8, src_name, 1, "fragment")) {
+        shadercross.addArg("-t");
+        shadercross.addArg("fragment");
+    } else if (std.mem.containsAtLeast(u8, src_name, 1, "compute")) {
+        shadercross.addArg("-t");
+        shadercross.addArg("compute");
+    }
+
+    if (module.optimize.? == .Debug) {
+        shadercross.addArg("-g");
+    }
+    if (module.resolved_target.?.result.os.tag == .windows) {
+        shadercross.addArg("-d");
+        shadercross.addArg("DXIL");
+    } else {
+        shadercross.addArg("-d");
+        shadercross.addArg("SPIRV");
+    }
+
+    shadercross.addArg("-o");
+    shadercross.addArg(b.pathJoin(&.{ out_dir_path, out_name }));
+    run_step.dependOn(&shadercross.step);
+
+    //     const std_out = shadercross.captureStdOut();
+    // const path = std_out.generated.file.getPath();
+    //     std.debug.print("{s}\n", .{});
+}
+
+fn compileHlslShaders(b: *std.Build, module: *std.Build.Module, run_step: *std.Build.Step, src_dir_path: []const u8, out_dir_path: []const u8) !void {
+    var shader_dir = try std.fs.cwd().openDir(src_dir_path, .{ .iterate = true });
+    defer shader_dir.close();
+    var shader_dir_iter = shader_dir.iterate();
+    while (try shader_dir_iter.next()) |shader| {
+        if (shader.kind != .file or !(std.mem.endsWith(u8, shader.name, ".hlsl")))
+            continue;
+        compileHlslShader(
+            b,
+            module,
+            run_step,
+            src_dir_path,
+            shader.name,
+            out_dir_path,
+            if (module.resolved_target.?.result.os.tag == .windows)
+                b.fmt("{s}.dxil", .{shader.name[0 .. shader.name.len - 5]})
+            else
+                b.fmt("{s}.spirv", .{shader.name[0 .. shader.name.len - 5]}),
+        );
+    }
+
+    const shaders_mod = assetpack.pack(b, b.path(out_dir_path), .{});
+    module.addImport("shaders", shaders_mod);
 }
 
 const manifest_fmt = @embedFile("src/android_project_files_generator/AndroidManifest.xml");
@@ -831,4 +815,248 @@ fn reduce_size(compile: *std.Build.Step.Compile, optimize: std.builtin.OptimizeM
     compile.bundle_ubsan_rt = optimize == .Debug;
     compile.dead_strip_dylibs = optimize != .Debug;
     // compile.bundle_compiler_rt = optimize == .Debug;
+}
+
+fn getAndroidTriple(target: std.Build.ResolvedTarget) error{InvalidAndroidTarget}![]const u8 {
+    if (!target.result.abi.isAndroid()) return error.InvalidAndroidTarget;
+    return switch (target.result.cpu.arch) {
+        .x86 => "i686-linux-android",
+        .x86_64 => "x86_64-linux-android",
+        .arm => "arm-linux-androideabi",
+        .aarch64 => "aarch64-linux-android",
+        .riscv64 => "riscv64-linux-android",
+        else => error.InvalidAndroidTarget,
+    };
+}
+
+const BuildOptions = struct {
+    target: std.Build.ResolvedTarget,
+    optimize: std.builtin.OptimizeMode,
+    project_name: []const u8,
+};
+
+fn buildBin(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.builtin.OptimizeMode) !void {
+    const exe_mod = b.createModule(.{
+        .root_source_file = b.path("src/main.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
+    const exe = b.addExecutable(.{
+        .name = "zig_sdl3_cross_template",
+        .root_module = exe_mod,
+    });
+
+    const sdl3 = b.dependency("sdl", .{
+        .target = target,
+        .optimize = optimize,
+    });
+
+    const sdl_lib = sdl3.artifact("SDL3");
+
+    if (target.result.os.tag == .ios or target.result.os.tag == .macos and builtin.os.tag != .macos) {
+        exe.addFrameworkPath(.{ .cwd_relative = b.pathJoin(&.{ b.sysroot.?, "System", "Library", "Frameworks" }) });
+        exe.addIncludePath(.{ .cwd_relative = b.pathJoin(&.{ b.sysroot.?, "usr", "include" }) });
+        exe.addLibraryPath(.{ .cwd_relative = b.pathJoin(&.{ "/usr", "lib" }) });
+    }
+
+    exe.linkLibrary(sdl_lib);
+
+    b.installArtifact(exe);
+
+    const run_cmd = b.addRunArtifact(exe);
+
+    if (b.args) |args| { // If b.args is not null, unwrap it into the 'args' variable
+        run_cmd.addArgs(args);
+    }
+
+    const run_step = b.step("run", "Run the App");
+    run_step.dependOn(&run_cmd.step);
+}
+
+fn buildApk(b: *std.Build, android_targets: []std.Build.ResolvedTarget, optimize: std.builtin.OptimizeMode) !void {
+    if (android_targets.len == 0) return error.MustProvideAndroidTargets;
+    const exe_name: []const u8 = "main";
+
+    const android_apk: ?*android.Apk = blk: {
+        if (android_targets.len == 0) break :blk null;
+
+        const android_sdk = android.Sdk.create(b, .{});
+        const apk = android_sdk.createApk(.{
+            .api_level = .android15,
+            .build_tools_version = "35.0.1",
+            .ndk_version = "29.0.13599879",
+        });
+        const key_store_file = android_sdk.createKeyStore(.example);
+        apk.setKeyStore(key_store_file);
+        apk.setAndroidManifest(b.path("android/AndroidManifest.xml"));
+        apk.addResourceDirectory(b.path("android/res"));
+
+        // Add Java files
+        // - If you have 'android:hasCode="false"' in your AndroidManifest.xml then no Java files are required
+        //   see: https://developer.android.com/ndk/samples/sample_na
+        //
+        //   WARNING: If you do not provide Java files AND android:hasCode="false" isn't explicitly set, then you may get the following error on "adb install"
+        //      Scanning Failed.: Package /data/app/base.apk code is missing]
+        //
+        // apk.addJavaSourceFile(.{ .file = b.path("android/src/X.java") });
+        apk.addJavaSourceFile(.{ .file = b.path("android/src/ZigSDLActivity.java") });
+
+        const sdl = b.dependency("sdl", .{
+            .target = android_targets[0],
+            .optimize = optimize,
+        });
+
+        const sdl_java_files = sdl.namedWriteFiles("sdljava");
+        for (sdl_java_files.files.items) |file| {
+            apk.addJavaSourceFile(.{ .file = file.contents.copy });
+        }
+
+        break :blk apk;
+    };
+    for (android_targets) |t| {
+        if (!t.result.abi.isAndroid()) {
+            @panic("expected Android target");
+        }
+        const app_module = b.createModule(.{
+            .target = t,
+            .optimize = optimize,
+            .root_source_file = b.path("src/main-android.zig"),
+        });
+
+        var exe: *std.Build.Step.Compile = if (t.result.abi.isAndroid()) b.addSharedLibrary(.{
+            .name = exe_name,
+            .root_module = app_module,
+        }) else b.addExecutable(.{
+            .name = exe_name,
+            .root_module = app_module,
+        });
+
+        const sdl = b.dependency("sdl", .{
+            .target = t,
+            .optimize = optimize,
+        });
+
+        const sdl_lib = sdl.artifact("SDL3");
+
+        exe.linkLibrary(sdl_lib);
+        exe.linkLibC();
+
+        // if building as library for Android, add this target
+        // NOTE: Android has different CPU targets so you need to build a version of your
+        //       code for x86, x86_64, arm, arm64 and more
+        if (t.result.abi.isAndroid()) {
+            const apk: *android.Apk = android_apk orelse @panic("Android APK should be initialized");
+            const android_dep = b.dependency("android", .{
+                .optimize = optimize,
+                .target = t,
+            });
+            exe.root_module.addImport("android", android_dep.module("android"));
+
+            apk.addArtifact(exe);
+        } else {
+            b.installArtifact(exe);
+
+            // If only 1 target, add "run" step
+            if (android_targets.len == 1) {
+                const run_step = b.step("run", "Run the application");
+                const run_cmd = b.addRunArtifact(exe);
+                run_step.dependOn(&run_cmd.step);
+            }
+        }
+    }
+    if (android_apk) |apk| {
+        const installed_apk = apk.addInstallApk();
+        b.getInstallStep().dependOn(&installed_apk.step);
+
+        const android_sdk = apk.sdk;
+        const run_step = b.step("run", "Install and run the application on an Android device");
+        const adb_install = android_sdk.addAdbInstall(installed_apk.source);
+        const adb_start = android_sdk.addAdbStart("com.zig.minimal/com.zig.minimal.ZigSDLActivity");
+        adb_start.step.dependOn(&adb_install.step);
+        run_step.dependOn(&adb_start.step);
+    }
+}
+
+fn buildWeb(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.builtin.OptimizeMode) !void {
+    const activateEmsdk = zemscripten.activateEmsdkStep(b);
+    b.default_step.dependOn(activateEmsdk);
+
+    const wasm = b.addStaticLibrary(.{
+        .name = "zig_sdl3_cross_template",
+        .root_source_file = b.path("src/main-web.zig"),
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+
+    const zemscripten_dep = b.dependency("zemscripten", .{});
+    wasm.root_module.addImport("zemscripten", zemscripten_dep.module("root"));
+
+    const sdl3 = b.dependency("sdl", .{
+        .target = target,
+        .optimize = optimize,
+    });
+
+    const sdl_lib = sdl3.artifact("SDL3");
+    wasm.linkLibrary(sdl_lib);
+
+    const emsdk_dep = b.dependency("emsdk", .{});
+    const emsdk_sysroot_include_path = emsdk_dep.path("upstream/emscripten/cache/sysroot/include");
+
+    sdl3.artifact("SDL3").addSystemIncludePath(emsdk_sysroot_include_path);
+
+    const sysroot_include = b.pathJoin(&.{ b.sysroot.?, "include" });
+    var dir = std.fs.openDirAbsolute(sysroot_include, std.fs.Dir.OpenDirOptions{ .access_sub_paths = true, .no_follow = true }) catch @panic("No emscripten cache. Generate it!");
+    dir.close();
+    wasm.addSystemIncludePath(.{ .cwd_relative = sysroot_include });
+
+    const emcc_flags = zemscripten.emccDefaultFlags(b.allocator, .{
+        .optimize = optimize,
+        .fsanitize = true,
+    });
+
+    var emcc_settings = zemscripten.emccDefaultSettings(b.allocator, .{
+        .optimize = optimize,
+    });
+    try emcc_settings.put("ALLOW_MEMORY_GROWTH", "1");
+    emcc_settings.put("USE_SDL", "3") catch unreachable;
+
+    const emcc_step = zemscripten.emccStep(
+        b,
+        wasm,
+        .{
+            .optimize = optimize,
+            .flags = emcc_flags, // Pass the modified flags
+            .settings = emcc_settings,
+            .use_preload_plugins = true,
+            .embed_paths = &.{},
+            .preload_paths = &.{},
+            .install_dir = .{ .custom = "web" },
+            .shell_file_path = "src/html/shell.html",
+        },
+    );
+
+    b.getInstallStep().dependOn(emcc_step);
+
+    var run_emrun_step = b.step("emrun", "Run the WebAssembly app using emrun");
+
+    const emrun_cmd = b.addSystemCommand(&.{
+        "emrun",
+        "--no_browser",
+        "--port",
+        "8080",
+        wasm.name,
+    });
+
+    emrun_cmd.step.dependOn(b.getInstallStep());
+
+    run_emrun_step.dependOn(&emrun_cmd.step);
+
+    const run_step = b.step("run", "Run the app (via emrun)");
+    run_step.dependOn(run_emrun_step);
+
+    if (b.args) |args| {
+        emrun_cmd.addArgs(args);
+    }
 }

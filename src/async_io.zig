@@ -35,7 +35,7 @@ pub const File = struct {
         file: [:0]const u8,
         mode: IoMode,
     ) !File {
-        return .{ .value = try errors.wrapNull(*c.SDL_AsyncIO, c.SDL_AsyncIOFromFile(
+        return .{ .value = try errors.wrapCallNull(*c.SDL_AsyncIO, c.SDL_AsyncIOFromFile(
             file.ptr,
             switch (mode) {
                 .read_only => "r",
@@ -285,7 +285,7 @@ pub const Queue = struct {
     /// ## Version
     /// This function is available since SDL 3.2.0.
     pub fn init() !Queue {
-        return .{ .value = try errors.wrapNull(*c.SDL_AsyncIOQueue, c.SDL_CreateAsyncIOQueue()) };
+        return .{ .value = try errors.wrapCallNull(*c.SDL_AsyncIOQueue, c.SDL_CreateAsyncIOQueue()) };
     }
 
     /// Load all the data from a file path, asynchronously.
@@ -484,7 +484,7 @@ pub const Queue = struct {
 ///
 /// ## Version
 /// This enum is available since SDL 3.2.0.
-pub const Result = enum(c_uint) {
+pub const Result = enum(c.SDL_AsyncIOResult) {
     /// Request was completed without error.
     complete = c.SDL_ASYNCIO_COMPLETE,
     /// Request failed for some reason.
@@ -497,7 +497,7 @@ pub const Result = enum(c_uint) {
 ///
 /// ## Version
 /// This enum is available since SDL 3.2.0.
-pub const TaskType = enum(c_uint) {
+pub const TaskType = enum(c.SDL_AsyncIOTaskType) {
     /// A read operation.
     read = c.SDL_ASYNCIO_TASK_READ,
     /// A write operation.

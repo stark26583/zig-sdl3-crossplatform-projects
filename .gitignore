@@ -14,4 +14,5 @@ projects/image_test/
 projects/callback_test/
 projects/cross_platform_test/
 projects/android_template/
-
+projects/white_background_remover/
+gpu_projects/crmi_scheduler_gpu
